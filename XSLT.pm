@@ -49,6 +49,8 @@ sub openproject {
   $xslflag = "FILE" unless defined $xslflag;
 
   $XSLT::DOMparser = new XML::DOM::Parser;
+  XML::DOM::setTagCompression (\&__my_tag_compression__);
+
   if ($xmlflag =~ /^F/i) {
     $XSLT::xml = $XSLT::DOMparser->parsefile ($xmlfile);
   } else {
@@ -68,6 +70,16 @@ sub openproject {
   $parser->__expand_xsl_includes__($XSLT::xsl);
   $parser->__add_default_templates__($XSLT::xsl);
 }
+
+  sub __my_tag_compression__ {
+     my ($tag, $elem) = @_;
+
+     # Print empty br, hr and img tags like this: <br />
+     return 2 if $tag =~ /^(br|hr|img)$/;
+
+     # Print other empty tags like this: <empty></empty>
+     return 1;
+  }
 
 
 sub process_project {
@@ -91,13 +103,33 @@ sub print_result {
 
   $XSLT::outputstring = $XSLT::result->toString;
   $XSLT::outputstring =~ s/\n\s*\n(\s*)\n/\n$1\n/g; # Substitute multiple empty lines by one
-  $XSLT::outputstring =~ s/\/\>/ \/\>/g;            # Insert a space before all />
+#  $XSLT::outputstring =~ s/\/\>/ \/\>/g;            # Insert a space before all />
 
   if ($file) {
     print $file $XSLT::outputstring,$/;
   } else {
     print $XSLT::outputstring,$/;
   }
+  #=item printToFile (filename)
+  #
+  #Prints the entire subtree to the file with the specified filename.
+  #
+  #Croaks: if the file could not be opened for writing.
+  #
+  #=item printToFileHandle (handle)
+  #
+  #Prints the entire subtree to the file handle.
+  #E.g. to print to STDOUT:
+  #
+  # $node->printToFileHandle (\*STDOUT);
+  #
+  #=item print (obj)
+  #
+  #Prints the entire subtree using the object's print method. E.g to print to a
+  #FileHandle object:
+  #
+  # $f = new FileHandle ("file.out", "w");
+  # $node->print ($f);
 }
 
 ######################################################################
@@ -861,13 +893,13 @@ sub _if {
 
   $_indent += $_indent_incr;
 
-    my $test = $child->getAttribute ('test');
+    my $test = $xsl_node->getAttribute ('test');
 
     if ($test) {
       my $test_succeeds = $parser->_evaluate_test ($test, $current_xml_node,
       						   $current_xml_selection_path);
       if ($test_succeeds) {
-        $parser->_evaluate_template ($child, $current_xml_node,
+        $parser->_evaluate_template ($xsl_node, $current_xml_node,
         			     $current_xml_selection_path,
                                      $current_result_node);
       }
@@ -1045,6 +1077,13 @@ sub _for_each {
 }
 
 sub _text {
+  #=item addText (text)
+  #
+  #Appends the specified string to the last child if it is a Text node, or else 
+  #appends a new Text node (with the specified text.)
+  #
+  #Return Value: the last child if it was a Text node or else the new Text node.
+
   my $parser = shift;
   my $xsl_node = shift;
   my $current_result_node = shift;
@@ -1062,12 +1101,7 @@ sub _text {
 
     if ($fragment_of_texts->hasChildNodes) {
       $fragment_of_texts->normalize();
-      my $text = $fragment_of_texts->getFirstChild;
-      my $value = $text->getNodeValue;
-      $value = s/\&lt;/</g;
-      $value = s/\&gt;/>/g;
-      $text->setNodeValue($value);
-      $parser->_add_node ($text, $current_result_node);
+      $parser->_add_node ($fragment_of_texts->getFirstChild, $current_result_node);
     } else {
       print " "x$_indent,"nothing left..$/" if $XSLT::debug;
     }
@@ -1085,7 +1119,7 @@ BEGIN {
   use Exporter ();
   use vars qw( $VERSION @ISA @EXPORT @EXPORT_OK);
 
-  $VERSION = '0.17';
+  $VERSION = '0.18';
 
   @ISA         = qw( Exporter );
   @EXPORT_OK   = qw( $Parser $debug $warnings);
