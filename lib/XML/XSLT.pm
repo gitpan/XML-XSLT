@@ -1,9 +1,33 @@
-###############################################################################
+##############################################################################
 #
 # Perl module: XML::XSLT
 #
 # By Geert Josten, gjosten@sci.kun.nl
 # and Egon Willighagen, egonw@sci.kun.nl
+#
+#    $Log: XSLT.pm,v $
+#    Revision 1.13  2001/12/20 09:21:42  gellyfish
+#    More refactoring
+#
+#    Revision 1.12  2001/12/19 21:06:31  gellyfish
+#    * Some refactoring and style changes
+#
+#    Revision 1.11  2001/12/19 09:11:14  gellyfish
+#    * Added more accessors for object attributes
+#    * Fixed potentially broken usage of $variables in _evaluate_template
+#
+#    Revision 1.10  2001/12/18 09:10:10  gellyfish
+#    Implemented attribute-sets
+#
+#    Revision 1.9  2001/12/17 22:32:12  gellyfish
+#    * Added Test::More to Makefile.PL
+#    * Added _indent and _outdent methods
+#    * Placed __get_attribute_sets in transform()
+#
+#    Revision 1.8  2001/12/17 11:32:08  gellyfish
+#    * Rolled in various patches
+#    * Added new tests
+#
 #
 ###############################################################################
 
@@ -21,7 +45,6 @@ package XML::XSLT;
 use strict;
 
 use XML::DOM 1.25;
-#use XML::Path;
 use LWP::Simple qw(get);
 use URI;
 use Cwd;
@@ -29,12 +52,13 @@ use File::Basename qw(dirname);
 use Carp;
 
 # Namespace constants
+
 use constant NS_XSLT         => 'http://www.w3.org/1999/XSL/Transform';
 use constant NS_XHTML        => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.32';
+$VERSION = '0.40';
 
 @ISA         = qw( Exporter );
 @EXPORT_OK   = qw( &transform &serve );
@@ -74,9 +98,9 @@ sub new {
 
   $self->debug("creating parser object:");
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   $self->open_xsl(%args);
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
   return $self;
 }
@@ -109,9 +133,17 @@ sub serve {
     }
   }
 
-  if($args{xml_declaration}) {
-    $ret = '<?xml version="' . $args{xml_version} . '" encoding="UTF-8"?>'.
-      "\n" . $ret;
+
+
+  if (my $doctype = $self->doctype()) 
+  {
+    $ret = $doctype . $ret;
+  }
+
+
+  if($args{xml_declaration}) 
+  {
+    $ret = $self->xml_declaration() . "\n" . $ret;
   }
 
   if($args{http_headers}) {
@@ -122,6 +154,66 @@ sub serve {
   return $ret;
 }
 
+
+sub xml_declaration
+{
+   my ( $self, $xml_version, $output_encoding ) = @_;
+
+   $xml_version ||= '1.0';
+   $output_encoding ||= $self->output_encoding();
+
+   return qq{<?xml version="$xml_version" encoding="$output_encoding"?>};
+}
+   
+
+  
+sub output_encoding
+{
+   my ( $self,$encoding ) = @_;
+
+   if ( defined $encoding )
+   {
+      $self->{OUTPUT_ENCODING} = $encoding;
+   }
+
+   return exists $self->{OUTPUT_ENCODING} ? $self->{OUTPUT_ENCODING} : 'UTF-8';
+}
+
+sub doctype_system
+{
+   my ( $self, $doctype ) = @_;
+
+   if ( defined $doctype ) 
+   {
+      $self->{DOCTYPE_SYSTEM} = $doctype;
+   }
+
+   return $self->{DOCTYPE_SYSTEM};
+}
+
+sub doctype_public
+{
+   my ( $self, $doctype ) = @_;
+
+   if ( defined $doctype ) 
+   {
+      $self->{DOCTYPE_PUBLIC} = $doctype;
+   }
+
+   return $self->{DOCTYPE_PUBLIC};
+}
+
+sub result_document()
+{
+   my ( $self, $document ) = @_;
+
+   if ( defined $document )
+   {
+      $self->{RESULT_DOCUMENT} = $document;
+   }
+
+   return $self->{RESULT_DOCUMENT};
+}
 
 sub debug {
   my $self = shift;
@@ -146,32 +238,47 @@ sub open_xml {
   my $class = ref $self || croak "Not a method call";
   my %args = $self->__parse_args(@_);
 
-  if(defined $self->{XML_DOCUMENT} && not $self->{XML_PASSED_AS_DOM}) {
+  if(defined $self->xml_document() && not $self->{XML_PASSED_AS_DOM}) {
     $self->debug("flushing old XML::DOM::Document object...");
-    $self->{XML_DOCUMENT}->dispose;
+    $self->xml_document()->dispose;
   }
 
   $self->{XML_PASSED_AS_DOM} = 1
     if ref $args{Source} eq 'XML::DOM::Document';
 
-  if (defined $self->{RESULT_DOCUMENT}) {
+  if (defined $self->result_document()) {
     $self->debug("flushing result...");
-    $self->{RESULT_DOCUMENT}->dispose ();
+    $self->result_document()->dispose ();
   }
 
   $self->debug("opening xml...");
 
   $args{parser_args} ||= {};
-  $self->{XML_DOCUMENT} = $self->__open_document (Source => $args{Source},
+  
+  my $xml_document      = $self->__open_document (Source => $args{Source},
 						  base   => $self->{XML_BASE},
 						  parser_args =>
 						  {%{$self->{PARSER_ARGS}},
 						   %{$args{parser_args}}},
 						 );
 
+  $self->xml_document($xml_document);
+
   $self->{XML_BASE} =
     dirname(URI->new_abs($args{Source}, $self->{XML_BASE})->as_string) . '/';
-  $self->{RESULT_DOCUMENT} = $self->{XML_DOCUMENT}->createDocumentFragment;
+  $self->result_document($self->xml_document()->createDocumentFragment);
+}
+
+sub xml_document
+{
+   my ( $self, $xml_document ) = @_;
+
+   if ( defined $xml_document )
+   {
+      $self->{XML_DOCUMENT} = $xml_document;
+   }
+
+   return $self->{XML_DOCUMENT};
 }
 
 sub open_xsl {
@@ -179,8 +286,8 @@ sub open_xsl {
   my $class = ref $self || croak "Not a method call";
   my %args = $self->__parse_args(@_);
 
-  $self->{XSL_DOCUMENT}->dispose
-    if not $self->{XSL_PASSED_AS_DOM} and defined $self->{XSL_DOCUMENT};
+  $self->xsl_document()->dispose
+    if not $self->{XSL_PASSED_AS_DOM} and defined $self->xsl_document();
 
   $self->{XSL_PASSED_AS_DOM} = 1
     if ref $args{Source} eq 'XML::DOM::Document';
@@ -189,16 +296,32 @@ sub open_xsl {
   $self->debug("opening xsl...");
 
   $args{parser_args} ||= {};
-  $self->{XSL_DOCUMENT} = $self->__open_document (Source => $args{Source},
+
+  my $xsl_document      = $self->__open_document (Source => $args{Source},
 						  base   => $self->{XSL_BASE},
 						  parser_args =>
 						  {%{$self->{PARSER_ARGS}},
 						   %{$args{parser_args}}},
 						 );
+
+  $self->xsl_document($xsl_document);
+
   $self->{XSL_BASE} =
     dirname(URI->new_abs($args{Source}, $self->{XSL_BASE})->as_string) . '/';
 
   $self->__preprocess_stylesheet;
+}
+
+sub xsl_document
+{
+   my ( $self, $xsl_document ) = @_;
+
+   if ( defined $xsl_document )
+   {
+      $self->{XSL_DOCUMENT} = $xsl_document;
+   }
+
+   return $self->{XSL_DOCUMENT};
 }
 
 # Argument parsing with backwards compatibility.
@@ -293,7 +416,7 @@ sub __preprocess_stylesheet {
 
 # Why is this here when __get_first_element does, apparently, the same thing?
 # Because, in __get_stylesheet we warp the document.
-  $self->{TOP_XSL_NODE} = $self->{XSL_DOCUMENT}->getFirstChild;
+  $self->top_xsl_node($self->xsl_document()->getFirstChild);
   $self->__expand_xsl_includes;
   $self->__extract_top_level_variables;
 
@@ -303,18 +426,31 @@ sub __preprocess_stylesheet {
   $self->__set_xsl_output;
 }
 
+sub top_xsl_node
+{
+   my ( $self, $top_xsl_node) = @_;
+
+   if ( defined $top_xsl_node )
+   {
+     $self->{TOP_XSL_NODE} = $top_xsl_node;
+   }
+
+   return $self->{TOP_XSL_NODE};
+}
+
 # private auxiliary function #
+
 sub __get_stylesheet {
   my $self = shift;
   my $stylesheet;
-  my $xsl_ns = $self->{XSL_NS};
-  my $xsl = $self->{XSL_DOCUMENT};
+  my $xsl_ns = $self->xsl_ns();
+  my $xsl = $self->xsl_document();
 
   foreach my $child ($xsl->getElementsByTagName ('*', 0)) {
     my ($ns, $tag) = split(':', $child->getTagName);
     if(not defined $tag) {
       $tag = $ns;
-      $ns  = $self->{DEFAULT_NS};
+      $ns  = $self->default_ns();
     }
     if ($tag eq 'stylesheet' ||
 	$tag eq 'transform') {
@@ -337,50 +473,50 @@ sub __get_stylesheet {
     $template->appendChild ($template_content);
   }
 
-  $self->{XSL_DOCUMENT} = $stylesheet;
+  $self->xsl_document($stylesheet);
 }
 
 # private auxiliary function #
 sub __get_first_element {
   my ($self) = @_;
-  my $node = $self->{XSL_DOCUMENT}->getFirstChild;
+  my $node = $self->xsl_document()->getFirstChild;
 
   $node = $node->getNextSibling
     until ref $node eq 'XML::DOM::Element';
-  $self->{TOP_XSL_NODE} = $node;
+  $self->top_xsl_node($node);
 }
 
 # private auxiliary function #
 sub __extract_namespaces {
   my ($self) = @_;
 
-  my $attr = $self->{TOP_XSL_NODE}->getAttributes;
+  my $attr = $self->top_xsl_node()->getAttributes;
   if(defined $attr) {
-    foreach my $attribute ($self->{TOP_XSL_NODE}->getAttributes->getValues) {
+    foreach my $attribute ($self->top_xsl_node()->getAttributes->getValues) {
       my ($pre, $post) = split(":", $attribute->getName, 2);
       my $value = $attribute->getValue;
 
       # Take care of namespaces
       if ($pre eq 'xmlns' and not defined $post) {  
-	$self->{DEFAULT_NS} = '';
+	$self->default_ns('');
 
-	$self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{namespace} = $value;
-	$self->{XSL_NS} = ''
+	$self->{NAMESPACE}->{$self->default_ns()}->{namespace} = $value;
+	$self->xsl_ns('')
 	  if $value eq NS_XSLT;
-	$self->debug("Namespace `" . $self->{DEFAULT_NS} . "' = `$value'");
+	$self->debug("Namespace `" . $self->default_ns() . "' = `$value'");
       } elsif ($pre eq 'xmlns') {
 	$self->{NAMESPACE}->{$post}->{namespace} = $value;
-	$self->{XSL_NS} = $post . ':'
+	$self->xsl_ns("$post:")
 	  if $value eq NS_XSLT;
 	$self->debug("Namespace `$post:' = `$value'");
       } else {
-	$self->{DEFAULT_NS} = '';
+	$self->default_ns('');
       }
 
       # Take care of versions
       if ($pre eq "version" and not defined $post) {
-	$self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{version} = $value;
-	$self->debug("Version for namespace `" . $self->{DEFAULT_NS} .
+	$self->{NAMESPACE}->{$self->default_ns()}->{version} = $value;
+	$self->debug("Version for namespace `" . $self->default_ns() .
 		     "' = `$value'");
       } elsif ($pre eq "version") {
 	$self->{NAMESPACE}->{$post}->{version} = $value;
@@ -388,15 +524,39 @@ sub __extract_namespaces {
       }
     }
   }
-  if (not defined $self->{DEFAULT_NS}) {
-    ($self->{DEFAULT_NS}) = split(':', $self->{TOP_XSL_NODE}->getTagName);
+  if (not defined $self->default_ns()) {
+    my ($dns) = split(':', $self->top_xsl_node()->getTagName);
+    $self->default_ns($dns);
   }
-  $self->debug("Default Namespace: `" . $self->{DEFAULT_NS} . "'");
-  $self->{XSL_NS} ||= $self->{DEFAULT_NS};
+  $self->debug("Default Namespace: `" . $self->default_ns() . "'");
+  $self->xsl_ns($self->default_ns()) unless $self->xsl_ns();
 
-  $self->debug("XSL Namespace: `" .$self->{XSL_NS} ."'");
+  $self->debug("XSL Namespace: `" .$self->xsl_ns() ."'");
   # ** FIXME: is this right?
-  $self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{namespace} ||= NS_XHTML;
+  $self->{NAMESPACE}->{$self->default_ns()}->{namespace} ||= NS_XHTML;
+}
+
+sub default_ns
+{
+   my ( $self, $default_ns ) = @_;
+
+   if ( defined $default_ns )
+   {
+     $self->{DEFAULT_NS} = $default_ns;
+   }
+   return exists $self->{DEFAULT_NS} ? $self->{DEFAULT_NS} : undef;
+}
+
+sub xsl_ns
+{
+   my ( $self, $prefix ) = @_;
+
+   if ( defined $prefix )
+   {
+      $prefix .= ':' unless $prefix =~ /:$/;
+      $self->{XSL_NS} = $prefix;
+   }
+   return $self->{XSL_NS};
 }
 
 # private auxiliary function #
@@ -404,7 +564,7 @@ sub __expand_xsl_includes {
   my $self = shift;
 
   foreach my $include_node
-    ($self->{TOP_XSL_NODE}->getElementsByTagName($self->{XSL_NS} . "include"))
+    ($self->top_xsl_node()->getElementsByTagName($self->xsl_ns() . "include"))
       {
     my $include_file = $include_node->getAttribute('href');
 
@@ -422,8 +582,8 @@ sub __expand_xsl_includes {
       if $@;
 
     $self->debug("inserting `$include_file'");
-    $include_doc->setOwnerDocument($self->{XSL_DOCUMENT});
-    $self->{TOP_XSL_NODE}->replaceChild($include_doc, $include_node);
+    $include_doc->setOwnerDocument($self->xsl_document());
+    $self->top_xsl_node()->replaceChild($include_doc, $include_node);
     $include_doc->dispose;
   }
 }
@@ -433,11 +593,11 @@ sub __extract_top_level_variables {
   my $self = $_[0];
 
   $self->debug("Extracting variables");
-  foreach my $child ($self->{TOP_XSL_NODE}->getElementsByTagName ('*',0)) {
+  foreach my $child ($self->top_xsl_node()->getElementsByTagName ('*',0)) {
     my ($ns, $tag) = split(':', $child);
 
-    if(($tag eq '' && $self->{XSL_NS} eq '') ||
-       $self->{XSL_NS} eq $ns) {
+    if(($tag eq '' && $self->xsl_ns() eq '') ||
+       $self->xsl_ns() eq $ns) {
       $tag = $ns if $tag eq '';
 
       if ($tag eq 'variable' || $tag eq 'param') {
@@ -446,8 +606,9 @@ sub __extract_top_level_variables {
 	if ($name) {
 	  my $value = $child->getAttribute("select");
 	  if (!$value) {
-	    my $result = $self->{XML_DOCUMENT}->createDocumentFragment;
-	    $self->_evaluate_template ($child, $self->{XML_DOCUMENT}, '', $result);
+	    my $result = $self->xml_document()->createDocumentFragment;
+	    $self->_evaluate_template ($child, $self->xml_document(), '', 
+                                       $result);
 	    $value = $self->_string ($result);
 	    $result->dispose();
 	  }
@@ -465,55 +626,77 @@ sub __extract_top_level_variables {
 # private auxiliary function #
 sub __add_default_templates {
   my $self = $_[0];
-  my $doc  = $self->{TOP_XSL_NODE}->getOwnerDocument;
+  my $doc  = $self->top_xsl_node()->getOwnerDocument;
 
   # create template for '*' and '/'
   my $elem_template =
     $doc->createElement
-      ($self->{XSL_NS} . "template");
+      ($self->xsl_ns() . "template");
   $elem_template->setAttribute('match','*|/');
 
   # <xsl:apply-templates />
   $elem_template->appendChild
     ($doc->createElement
-     ($self->{XSL_NS} . "apply-templates"));
+     ($self->xsl_ns() . "apply-templates"));
 
   # create template for 'text()' and '@*'
   my $attr_template =
     $doc->createElement
-      ($self->{XSL_NS} . "template");
+      ($self->xsl_ns() . "template");
   $attr_template->setAttribute('match','text()|@*');
 
   # <xsl:value-of select="." />
   $attr_template->appendChild
     ($doc->createElement
-     ($self->{XSL_NS} . "value-of"));
+     ($self->xsl_ns() . "value-of"));
   $attr_template->getFirstChild->setAttribute('select','.');
 
   # create template for 'processing-instruction()' and 'comment()'
   my $pi_template =
-    $doc->createElement($self->{XSL_NS} . "template");
+    $doc->createElement($self->xsl_ns() . "template");
   $pi_template->setAttribute('match','processing-instruction()|comment()');
 
   $self->debug("adding default templates to stylesheet");
   # add them to the stylesheet
-  $self->{XSL_DOCUMENT}->insertBefore($pi_template,
-				 $self->{TOP_XSL_NODE});
-  $self->{XSL_DOCUMENT}->insertBefore($attr_template,
-				 $self->{TOP_XSL_NODE});
-  $self->{XSL_DOCUMENT}->insertBefore($elem_template,
-				 $self->{TOP_XSL_NODE});
+  $self->xsl_document()->insertBefore($pi_template,
+				 $self->top_xsl_node);
+  $self->xsl_document()->insertBefore($attr_template,
+				 $self->top_xsl_node());
+  $self->xsl_document()->insertBefore($elem_template,
+				 $self->top_xsl_node());
+}
+
+
+sub templates
+{
+   my ( $self, $templates ) = @_;
+
+   if ( defined $templates )
+   {
+      $self->{TEMPLATE} = $templates;
+   }
+
+   unless ( exists $self->{TEMPLATE} )
+   {
+      $self->{TEMPLATE} = [];
+      my $xsld = $self->xsl_document();
+      my $tag  = $self->xsl_ns() . 'template';
+
+      @{$self->{TEMPLATE}}  = $xsld->getElementsByTagName($tag);
+   }
+
+   return wantarray ? @{$self->{TEMPLATE}} : $self->{TEMPLATE};
 }
 
 # private auxiliary function #
 sub __cache_templates {
   my $self = $_[0];
 
-  $self->{TEMPLATE} = [$self->{XSL_DOCUMENT}->getElementsByTagName ("$self->{XSL_NS}template")];
 
   # pre-cache template names and matches #
   # reversing the template order is much more efficient #
-  foreach my $template (reverse @{$self->{TEMPLATE}}) {
+
+  foreach my $template (reverse $self->templates()) {
     if ($template->getParentNode->getTagName =~
 	/^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/) {
       my $match = $template->getAttribute ('match');
@@ -542,52 +725,127 @@ sub __set_xsl_output {
 
   # default settings
   $self->{METHOD} = 'xml';
-  $self->{MEDIA_TYPE} = 'text/xml';
+  $self->media_type('text/xml');
   $self->{OMIT_XML_DECL} = 'yes';
 
   # extraction of top-level xsl:output tag
   my ($output) = 
-    $self->{XSL_DOCUMENT}->getElementsByTagName($self->{XSL_NS} . "output",0);
+    $self->xsl_document()->getElementsByTagName($self->xsl_ns() . "output",0);
 
   if (defined $output) {
     # extraction and processing of the attributes
     my $attribs = $output->getAttributes;
     my $media  = $attribs->getNamedItem('media-type');
     my $method = $attribs->getNamedItem('method');
-    $self->{MEDIA_TYPE} = $media->getNodeValue if defined $media;
+    $self->media_type($media->getNodeValue) if defined $media;
     $self->{METHOD} = $method->getNodeValue if defined $method;
 
     my $omit = $attribs->getNamedItem('omit-xml-declaration');
-    $self->{OMIT_XML_DECL} = defined $omit->getNodeValue ?
-      $omit->getNodeValue : 'no';
+    $self->{OMIT_XML_DECL} = $omit ? $omit->getNodeValue : 'no';
 
     if ($self->{OMIT_XML_DECL} ne 'yes' && $self->{OMIT_XML_DECL} ne 'no') {
       $self->warn(qq{Wrong value for attribute "omit-xml-declaration" in\n\t} .
-		  $self->{XSL_NS} . qq{output, should be "yes" or "no"});
+		  $self->xsl_ns() . qq{output, should be "yes" or "no"});
     }
 
-    if (! $self->{OMIT_XML_DECL}) {
-      my $output_ver = $attribs->getNamedItem('version')->getNodeValue;
-      my $output_enc = $attribs->getNamedItem('encoding')->getNodeValue;
-      $self->{OUTPUT_VERSION} = $output_ver->getNodeValue
+    if ( $self->{OMIT_XML_DECL} eq 'no' ) {
+      my $output_ver = $attribs->getNamedItem('version');
+      my $output_enc = $attribs->getNamedItem('encoding');
+      $self->output_version($output_ver->getNodeValue)
 	if defined $output_ver;
-      $self->{OUTPUT_ENCODING} = $output_enc->getNodeValue
+      $self->output_encoding($output_enc->getNodeValue)
 	if defined $output_enc;
 
-      if (not $self->{OUTPUT_VERSION} || not $self->{OUTPUT_ENCODING}) {
+      if (not $self->output_version() || not $self->output_encoding()) {
 	$self->warn(qq{Expected attributes "version" and "encoding" in\n\t} .
-		    $self->{XSL_NS} . "output");
+		    $self->xsl_ns() . "output");
       }
     }
     my $doctype_public = $attribs->getNamedItem('doctype-public');
     my $doctype_system = $attribs->getNamedItem('doctype-system');
-    $self->{DOCTYPE_PUBLIC} = defined $doctype_public ?
-      $doctype_public->getNodeValue : '';
-    $self->{DOCTYPE_SYSTEM} = defined $doctype_system ?
-      $doctype_system->getNodeValue : '';
+    
+    my $dp = defined $doctype_public ?  $doctype_public->getNodeValue : '';
+
+    $self->doctype_public($dp);
+
+    my $ds = defined $doctype_system ?  $doctype_system->getNodeValue : '';
+    $self->doctype_system($ds);
   } else {
     $self->debug("Default Output options being used");
   }
+}
+
+sub output_version
+{
+   my ( $self, $output_version ) = @_;
+
+   if ( defined $output_version )
+   {
+     $self->{OUTPUT_VERSION} = $output_version;
+   }
+
+   return exists $self->{OUTPUT_VERSION} ? $self->{OUTPUT_VERSION} : '1.0';
+}
+
+sub __get_attribute_sets
+{
+    my ( $self ) = @_;
+
+    my $doc = $self->xsl_document();
+    my $nsp = $self->xsl_ns();
+    my $tagname = $nsp . 'attribute-set';
+    foreach my $attribute_set ( $doc->getElementsByTagName($tagname,0))
+    {
+       my $attribs = $attribute_set->getAttributes();
+       next unless defined $attribs;
+       my $name_attr = $attribs->getNamedItem('name');
+       next unless defined $name_attr;
+       my $name = $name_attr->getValue();
+       $self->debug("processing attribute-set $name");  
+
+       my $attr_set = {};
+
+       my $tagname = $nsp . 'attribute';
+
+       foreach my $attribute ( $attribute_set->getElementsByTagName($tagname,0))
+       {
+          my $attribs = $attribute->getAttributes();
+          next unless defined $attribs;
+          my $name_attr = $attribs->getNamedItem('name');
+          next unless defined $name_attr;
+          my $attr_name = $name_attr->getValue();
+          $self->debug("Processing attribute $attr_name");
+          if ( $attr_name )
+          {
+             my $result = $self->xml_document()->createDocumentFragment();
+             $self->_evaluate_template($attribute,
+                                       $self->xml_document(),
+                                       '/',
+                                       $result); # might need variables
+             my $value = $self->fix_attribute_value($self->__string__($result));
+             $attr_set->{$attr_name} = $value;
+             $result->dispose();
+             $self->debug("Adding attribute $attr_name with value $value");
+          }
+       }
+
+       $self->__attribute_set_($name,$attr_set);
+    }
+}
+
+# Accessor for attribute sets
+
+sub __attribute_set_
+{
+   my ($self,$name,$attr_hash) = @_;
+
+   if ( defined $attr_hash && defined $name)
+   {
+      $self->{ATTRIBUTE_SETS}->{$name} = $attr_hash;
+   }
+
+   return defined $name && exists $self->{ATTRIBUTE_SETS}->{$name} ?
+                                  $self->{ATTRIBUTE_SETS}->{$name} : undef;
 }
 
 sub open_project {
@@ -602,13 +860,13 @@ sub open_project {
   $deprecation_used{open_project} = 1;
 
   $self->debug("opening project:");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   $self->open_xml ($xml, %args);
   $self->open_xsl ($xsl, %args);
 
   $self->debug("done...");
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub transform {
@@ -616,56 +874,54 @@ sub transform {
   my %topvariables = $self->__parse_args(@_);
 
   $self->debug("transforming document:");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   $self->open_xml (%topvariables);
 
+  
   $self->debug("done...");
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
+
+  # The _get_attribute_set needs an open XML document
+
+  $self->_indent();
+  $self->__get_attribute_sets();
+  $self->_outdent();
 
   $self->debug("processing project:");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
-  my $root_template = $self->_match_template("match", '/', 1, '');
-  croak "Can't find root template"
-    unless defined $root_template;
-
-  %topvariables = (%{$self->{VARIABLES}}, %topvariables);
-  $self->_evaluate_template ( $root_template,            # starting template: the root template
-			      $self->{XML_DOCUMENT},     # current XML node: the root
-			      '',                        # current XML selection path: the root
-			      $self->{RESULT_DOCUMENT},  # current result tree node: the root
-			      {()},                      # current known variables: none
-			      \%topvariables             # previously known variables: top level variables
-			      );
+  $self->process(%topvariables);
 
   $self->debug("done!");
-  $self->{INDENT} -= $self->{INDENT_INCR};
-  $self->{RESULT_DOCUMENT};
+  $self->_outdent();
+  return $self->result_document();
 }
 
 sub process {
   my ($self, %topvariables) = @_;
 
   $self->debug("processing project:");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   my $root_template = $self->_match_template ("match", '/', 1, '');
 
-  %topvariables = (%{$self->{VARIABLES}}, %topvariables);
+  %topvariables = (%topvariables, 
+                   defined $self->{VARIABLES} && ref $self->{VARIABLES} &&
+                           ref $self->{VARIABLES} eq 'ARRAY' ? 
+                                  @{$self->{VARIABLES}} : ());
 
   $self->_evaluate_template (
 			       $root_template, # starting template: the root template
-			       $self->{XML_DOCUMENT}, # current XML node: the root
+			       $self->xml_document(),
 			       '', # current XML selection path: the root
-			       $self->{RESULT_DOCUMENT}, # current result tree node: the root
-			       {
-				()}, # current known variables: none
+			       $self->result_document(), # current result tree node: the root
+			       {()}, # current known variables: none
 			       \%topvariables # previously known variables: top level variables
 			      );
 
   $self->debug("done!");
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 # Handles deprecations.
@@ -675,10 +931,10 @@ sub AUTOLOAD {
   my $name = $AUTOLOAD;
   $name =~ s/.*://;
 
-  my %deprecation = ('output_string'      => 'asString',
-		     'result_string'      => 'asString',
-		     'output'             => 'asString',
-		     'result'             => 'asString',
+  my %deprecation = ('output_string'      => 'toString',
+		     'result_string'      => 'toString',
+		     'output'             => 'toString',
+		     'result'             => 'toString',
 		     'result_mime_type'   => 'media_type',
 		     'output_mime_type'   => 'media_type',
 		     'result_tree'        => 'to_dom',
@@ -714,7 +970,7 @@ sub toString {
 
   local *XML::DOM::Text::print = \&_my_print_text;
 
-  my $string = $self->{RESULT_DOCUMENT}->toString;
+  my $string = $self->result_document()->toString;
   #  $string =~ s/\n\s*\n(\s*)\n/\n$1\n/g;  # Substitute multiple empty lines by one
   #  $string =~ s/\/\>/ \/\>/g;            # Insert a space before every />
 
@@ -730,11 +986,18 @@ sub toString {
 sub to_dom {
   my $self = shift;
 
-  return $self->{RESULT_DOCUMENT};
+  return $self->result_document();
 }
 
 sub media_type {
-  return ($_[0]->{MEDIA_TYPE});
+   my ( $self, $media_type ) = @_;
+
+   if ( defined $media_type )
+   {
+      $self->{MEDIA_TYPE} = $media_type;
+   }
+
+   return $self->{MEDIA_TYPE};
 }
 
 sub print_output {
@@ -754,22 +1017,18 @@ sub print_output {
   $deprecation_used{print_output} = 1;
 
   if ($mime) {
-    print "Content-type: $self->{MEDIA_TYPE}\n\n";
+    print "Content-type: " . $self->media_type() . "\n\n";
 
     if ($self->{METHOD} eq 'xml' || $self->{METHOD} eq 'html') {
-      if (($self->{OMIT_XML_DECL} eq 'no') && $self->{OUTPUT_VERSION}
-	  && $self->{OUTPUT_ENCODING}) {
-	print "<?xml version=\"$self->{OUTPUT_VERSION}\" encoding=\"$self->{OUTPUT_ENCODING}\"?>\n";
+      if ($self->{OMIT_XML_DECL} eq 'no') 
+      {      
+        print $self->xml_declaration(),"\n"; 
       }
     }
-    if ($self->{DOCTYPE_SYSTEM}) {
-      my $root_name = $self->{RESULT_DOCUMENT}->getElementsByTagName('*',0)->item(0)->getTagName;
-      if ($self->{DOCTYPE_PUBLIC}) {
-	print qq{<!DOCTYPE $root_name PUBLIC "} . $self->{DOCTYPE_PUBLIC} .
-	  qq{" "} . $self->{DOCTYPE_SYSTEM} . qq{">\n};
-      } else {
-	print qq{<!DOCTYPE $root_name SYSTEM "} . $self->{DOCTYPE_SYSTEM} . qq{">\n};
-      }
+
+    if ( my $doctype = $self->doctype() )
+    {
+       print "$doctype\n";
     }
   }
 
@@ -790,20 +1049,50 @@ sub print_output {
     print $self->output_string,"\n";
   }
 }
+
 *print_result = *print_output;
+
+sub doctype
+{
+   my ( $self ) = @_;
+
+   my $doctype = "";
+
+   if ($self->doctype_public() || $self->doctype_system()) 
+   {
+      my $root_name = $self->result_document()
+                           ->getElementsByTagName('*',0)->item(0)->getTagName;
+
+      if ($self->doctype_public()) 
+      {
+	$doctype = qq{<!DOCTYPE $root_name PUBLIC "} . 
+                   $self->doctype_public() .
+	           qq{" "} . $self->doctype_system() . qq{">};
+      } 
+      else 
+      {
+	 $doctype =  qq{<!DOCTYPE $root_name SYSTEM "} . 
+                     $self->doctype_system()
+                     . qq{">};
+      }
+   }
+  
+   $self->debug("returning doctype of $doctype");
+   return $doctype;
+}
 
 sub dispose {
   #my $self = $_[0];
 
   #$_[0]->[PARSER] = undef if (defined $_[0]->[PARSER]);
-  $_[0]->{RESULT_DOCUMENT}->dispose if (defined $_[0]->{RESULT_DOCUMENT});
+  $_[0]->result_document()->dispose if (defined $_[0]->result_document());
 
   # only dispose xml and xsl when they were not passed as DOM
-  if (not defined $_[0]->{XML_PASSED_AS_DOM} && defined $_-[0]->{XML_DOCUMENT}) {
-    $_[0]->{XML_DOCUMENT}->dispose;
+  if (not defined $_[0]->{XML_PASSED_AS_DOM} && defined $_-[0]->xml_document()) {
+    $_[0]->xml_document()->dispose;
   }
-  if (not defined $_[0]->{XSL_PASSED_AS_DOM} && defined $_-[0]->{XSL_DOCUMENT}) {
-    $_[0]->{XSL_DOCUMENT}->dispose;
+  if (not defined $_[0]->{XSL_PASSED_AS_DOM} && defined $_-[0]->xsl_document()) {
+    $_[0]->xsl_document()->dispose;
   }
 
   $_[0] = undef;
@@ -821,8 +1110,10 @@ sub __open_document {
 
   $self->debug("opening document");
 
-  eval {
-    if(length $args{Source} < 255 &&
+  eval 
+  {
+    my $ref = ref($args{Source});
+    if(!$ref && length $args{Source} < 255 && 
        (-f $args{Source} ||
 	lc(substr($args{Source}, 0, 5)) eq 'http:' ||
 	lc(substr($args{Source}, 0, 6)) eq 'https:' ||
@@ -831,24 +1122,31 @@ sub __open_document {
 				# Filename
       $self->debug("Opening URL");
       $doc = $self->__open_by_filename($args{Source}, $args{base});
-    } elsif(!ref $args{Source}) {
+    } elsif(!$ref) {
 				# String
       $self->debug("Opening String");
       $doc = $self->{PARSER}->parse ($args{Source});
-    } elsif(ref $args{Source} eq "SCALAR") {
+    } elsif($ref eq "SCALAR") {
 				# Stringref
       $self->debug("Opening Stringref");
       $doc = $self->{PARSER}->parse (${$args{Source}});
-    } elsif(ref $args{Source} eq "XML::DOM::Document") {
+    } elsif($ref eq "XML::DOM::Document") {
 				# DOM object
       $self->debug("Opening XML::DOM");
       $doc = $args{Source};
-    } else {
+    } elsif ($ref eq "GLOB") { # This is a file glob
+      $self->debug("Opening GLOB");
+      my $ioref = *{$args{Source}}{IO};
+      $doc = $self->{PARSER}->parse($ioref);
+    } elsif (UNIVERSAL::isa($args{Source}, 'IO::Handle')) { # IO::Handle
+      $self->debug("Opening IO::Handle");
+      $doc = $self->{PARSER}->parse($args{Source}); 
+    }
+      else {
       $doc = undef;
     }
   };
   die "Error while parsing: $@\n". $args{Source} if $@;
-
   return $doc;
 }
 
@@ -899,7 +1197,8 @@ sub _match_template {
 	if (&__template_matches__ ($match, $select_value, $xml_count,
 				   $xml_selection_path)) {
 	  $self->debug(qq{  found #$count with "$match" in "$original_match"});
-	  $template = ${$self->{TEMPLATE}}[$count-1];
+
+	  $template = ($self->templates())[$count-1];
 	  return $template;
 	  #	  last;
 	}
@@ -910,7 +1209,7 @@ sub _match_template {
 	if (&__template_matches__ ($full_match, $select_value, $xml_count,
 				   $xml_selection_path)) {
 	  $self->debug(qq{  found #$count with "$full_match" in "$original_match"});
-	  $template = ${$self->{TEMPLATE}}[$count-1];
+	  $template = ($self->templates())[$count-1];
 	  return $template;
 	  #          last;
 	} else {
@@ -985,8 +1284,8 @@ sub _evaluate_test {
     
     $self->debug("evaluating test $test at path $path:");;
 
-    $self->{INDENT} += $self->{INDENT_INCR};
-    my $node = $self->_get_node_set ($path, $self->{XML_DOCUMENT},
+    $self->_indent();
+    my $node = $self->_get_node_set ($path, $self->xml_document(),
 				     $current_xml_selection_path,
 				     $current_xml_node, $variables);
     if (@$node) {
@@ -994,30 +1293,30 @@ sub _evaluate_test {
     } else {
       return "";
     }
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   } else {
     $self->debug("evaluating path or test $test:");;
-    my $node = $self->_get_node_set ($test, $self->{XML_DOCUMENT},
+    my $node = $self->_get_node_set ($test, $self->xml_document(),
 				     $current_xml_selection_path,
 				     $current_xml_node, $variables, "silent");
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     if (@$node) {
       $self->debug("path exists!");;
       return "true";
     } else {
       $self->debug("not a valid path, evaluating as test");;
     }
-    $self->{INDENT} -= $self->{INDENT_INCR}
+    $self->_outdent();
   }
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   my $result = &__evaluate_test__ ($self,$test, $current_xml_selection_path,$current_xml_node,$variables);
   if ($result) {
     $self->debug("test evaluates true..");
   } else {
     $self->debug("test evaluates false..");
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
   return $result;
 }
 
@@ -1027,7 +1326,7 @@ sub _evaluate_template {
 
   $self->debug(qq{evaluating template content with current path }
 	       . qq{"$current_xml_selection_path": });
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   die "No Template"
     unless defined $template && ref $template;
@@ -1037,7 +1336,7 @@ sub _evaluate_template {
     my $ref = ref $child;
 
     $self->debug("$ref");
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     my $node_type = $child->getNodeType;
     if ($node_type == ELEMENT_NODE) {
       $self->_evaluate_element ($child, $current_xml_node,
@@ -1045,10 +1344,9 @@ sub _evaluate_template {
 				$current_result_node, $variables,
 				$oldvariables);
     } elsif ($node_type == TEXT_NODE) {
-      # strip whitespace here?
-      $self->_add_node ($child, $current_result_node);
+        $self->_add_node ($child, $current_result_node);
     } elsif ($node_type == CDATA_SECTION_NODE) {
-      my $text = $self->{XML_DOCUMENT}->createTextNode ($child->getData);
+      my $text = $self->xml_document()->createTextNode ($child->getData);
       $self->_add_node($text, $current_result_node);
     } elsif ($node_type == ENTITY_REFERENCE_NODE) {
       $self->_add_node($child, $current_result_node);
@@ -1063,19 +1361,20 @@ sub _evaluate_template {
 		  "($current_xml_selection_path)");
     }
 
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   }
 
   $self->debug("done!");
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _add_node {
   my ($self, $node, $parent, $deep, $owner) = @_;
-  $owner ||= $self->{XML_DOCUMENT};
+  $owner ||= $self->xml_document();
 
-  $self->debug("adding node (deep)..") if defined $deep;
-  $self->debug("adding node (non-deep)..") unless defined $deep;
+  my $what = defined $deep ? 'deep' : 'non-deep';
+
+  $self->debug("adding node ($what)..");
 
   $node = $node->cloneNode($deep);
   $node->setOwnerDocument($owner);
@@ -1090,12 +1389,12 @@ sub _apply_templates {
   my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
       $current_result_node, $variables, $oldvariables) = @_;
   my $children;
-  my $params={};
-  my $newvariables={%$variables};
+  my $params = {};
+  my $newvariables = defined $variables ? {%$variables}: {};
 
   my $select = $xsl_node->getAttribute ('select');
 
-  if ($select =~ /\$/) {
+  if ($select =~ /\$/ and defined $variables) {
     # replacing occurences of variables:
     foreach my $varname (keys (%$variables)) {
       $select =~ s/[^\\]\$$varname/$$variables{$varname}/g;
@@ -1104,13 +1403,12 @@ sub _apply_templates {
 
   if ($select) {
     $self->debug(qq{applying templates on children $select of "$current_xml_selection_path":});
-    $children = $self->_get_node_set ($select, $self->{XML_DOCUMENT},
+    $children = $self->_get_node_set ($select, $self->xml_document(),
 					$current_xml_selection_path,
 					$current_xml_node, $variables);
   } else {
     $self->debug(qq{applying templates on all children of "$current_xml_selection_path":});
-    my @children = $current_xml_node->getChildNodes;
-    $children = \@children;
+    $children = [ $current_xml_node->getChildNodes ];
   }
 
   $self->_process_with_params ($xsl_node, $current_xml_node,
@@ -1119,7 +1417,7 @@ sub _apply_templates {
 
   # process xsl:sort here
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   my $count = 1;
   foreach my $child (@$children) {
@@ -1168,7 +1466,7 @@ sub _apply_templates {
     $count++;
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_indent();
 }
 
 sub _for_each {
@@ -1185,11 +1483,11 @@ sub _for_each {
   }
 
   if (defined $select) {
-    $self->debug("applying template for each child $select of \"$current_xml_selection_path\":");
-    my $children = $self->_get_node_set ($select, $self->{XML_DOCUMENT},
+    $self->debug(qq{applying template for each child $select of "$current_xml_selection_path":});
+    my $children = $self->_get_node_set ($select, $self->xml_document(),
 					   $current_xml_selection_path,
 					   $current_xml_node, $variables);
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     my $count = 1;
     foreach my $child (@$children) {
       my $node_type = $child->getNodeType;
@@ -1212,9 +1510,10 @@ sub _for_each {
       $count++;
     }
 
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   } else {
-    $self->warn("expected attribute \"select\" in <$self->{XSL_NS}for-each>");
+    my $ns = $self->xsl_ns();
+    $self->warn(qq%expected attribute "select" in <${ns}for-each>%);
   }
 
 }
@@ -1226,7 +1525,7 @@ sub _select_template {
   my $ref = ref $child;
   $self->debug(qq{selecting template $select for child type $ref of "$current_xml_selection_path":});
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   my $child_xml_selection_path = "$current_xml_selection_path/$select";
   my $template = $self->_match_template ("match", $select, $count,
@@ -1242,7 +1541,7 @@ sub _select_template {
     $self->debug("skipping template selection...");;
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _evaluate_element {
@@ -1252,14 +1551,14 @@ sub _evaluate_element {
 
   if(not defined $xsl_tag) {
     $xsl_tag = $ns;
-    $ns = $self->{DEFAULT_NS};
+    $ns = $self->default_ns();
   } else {
     $ns .= ':';
   }
   $self->debug(qq{evaluating element `$xsl_tag' from `$current_xml_selection_path': });
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
-  if ($ns eq $self->{XSL_NS}) {
+  if ($ns eq $self->xsl_ns()) {
     my @attributes = $xsl_node->getAttributes->getValues;
     $self->debug(qq{This is an xsl tag});
     if ($xsl_tag eq 'apply-templates') {
@@ -1333,19 +1632,28 @@ sub _evaluate_element {
 			  $current_xml_selection_path,
 			  $current_result_node, $variables, $oldvariables, 0);
 
+    } elsif ( $xsl_tag eq 'sort' ) { 
+      $self->_sort ($xsl_node, $current_xml_node,
+                    $current_xml_selection_path,
+                    $current_result_node, $variables, $oldvariables, 0);
+    } elsif ( $xsl_tag eq 'attribute-set' ) { 
+      $self->_attribute_set ($xsl_node, $current_xml_node,
+                             $current_xml_selection_path,
+                             $current_result_node, $variables, 
+                             $oldvariables, 0);
     } else {
       $self->_add_and_recurse ($xsl_node, $current_xml_node,
 				 $current_xml_selection_path,
 				 $current_result_node, $variables, $oldvariables);
     }
   } else {
-    $self->debug($ns ." does not match ". $self->{XSL_NS});
+    $self->debug($ns ." does not match ". $self->xsl_ns());
     $self->_check_attributes_and_recurse ($xsl_node, $current_xml_node,
 					    $current_xml_selection_path,
 					    $current_result_node, $variables, $oldvariables);
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _add_and_recurse {
@@ -1365,36 +1673,56 @@ sub _check_attributes_and_recurse {
 
   $self->_add_node ($xsl_node, $current_result_node);
   $self->_attribute_value_of ($current_result_node->getLastChild,
-				$current_xml_node,
-				$current_xml_selection_path, $variables);
+                              $current_xml_node,
+                              $current_xml_selection_path, $variables);
   $self->_evaluate_template ($xsl_node, $current_xml_node,
-			       $current_xml_selection_path,
-			       $current_result_node->getLastChild, $variables, $oldvariables);
+                             $current_xml_selection_path,
+                             $current_result_node->getLastChild, 
+                             $variables, $oldvariables);
 }
+
 
 sub _element {
   my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
       $current_result_node, $variables, $oldvariables) = @_;
   
   my $name = $xsl_node->getAttribute ('name');
-  $self->debug("inserting Element named \"$name\":");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->debug(qq{inserting Element named "$name":});
+  $self->_indent();
 
   if (defined $name) {
-    my $result = $self->{XML_DOCUMENT}->createElement($name);
+    my $result = $self->xml_document()->createElement($name);
 
     $self->_evaluate_template ($xsl_node,
 				 $current_xml_node,
 				 $current_xml_selection_path,
 				 $result, $variables, $oldvariables);
 
+    my $attr_set = $xsl_node->getAttribute('use-attribute-sets');
 
+    if ( $attr_set )
+    {
+      $self->_indent();
+      my $set_name = $attr_set;
+      
+      if ( my $set = $self->__attribute_set_($set_name) )
+      {
+         $self->debug("Adding attribute-set '$set_name'");
+         
+         foreach my $attr_name ( keys %{$set} )
+         {
+           $self->debug("Adding attribute $attr_name ->" . $set->{$attr_name});
+           $result->setAttribute($attr_name,$set->{$attr_name});
+         }
+      }
+      $self->_outdent();
+    }
     $current_result_node->appendChild($result);
   } else {
     $self->warn(q{expected attribute "name" in <} .
-		$self->{XSL_NS} . q{element>});
+		$self->xsl_ns() . q{element>});
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 {
@@ -1421,19 +1749,19 @@ sub _value_of {
   my $xml_node;
 
   if (defined $select) {
-    $xml_node = $self->_get_node_set ($select, $self->{XML_DOCUMENT},
+    $xml_node = $self->_get_node_set ($select, $self->xml_document(),
 					$current_xml_selection_path,
 					$current_xml_node, $variables);
 
     $self->debug("stripping node to text:");
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     my $text = '';
     $text = $self->__string__ ($$xml_node[0]) if @$xml_node;
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
 
     if ($text ne '') {
-      my $node = $self->{XML_DOCUMENT}->createTextNode ($text);
+      my $node = $self->xml_document()->createTextNode ($text);
       if ($xsl_node->getAttribute ('disable-output-escaping') eq 'yes') {
         $self->debug("disabling output escaping");
         bless $node,'XML::XSLT::DOM::TextDOE' ;
@@ -1444,7 +1772,7 @@ sub _value_of {
     }
   } else {
     $self->warn(qq{expected attribute "select" in <} .
-		$self->{XSL_NS} . q{value-of>});
+		$self->xsl_ns() . q{value-of>});
   }
 }
 
@@ -1458,11 +1786,11 @@ sub __strip_node_to_text__ {
     $result = $node->getData;
   } elsif (($node_type == ELEMENT_NODE)
 	   || ($node_type == DOCUMENT_FRAGMENT_NODE)) {
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     foreach my $child ($node->getChildNodes) {
       $result .= &__strip_node_to_text__ ($self, $child);
     }
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   }
   return $result;
 }
@@ -1476,7 +1804,7 @@ sub __string__ {
     my $ref = (ref ($node) || "not a reference");
     $self->debug("stripping child nodes ($ref):");
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
 
     if ($ref eq "ARRAY") {
       return $self->__string__ ($$node[0], $depth);
@@ -1504,8 +1832,8 @@ sub __string__ {
       }
     }
 
-    $self->debug("  \"$result\"");
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->debug(qq{  "$result"});
+    $self->_outdent();
   } else {
     $self->debug(" no result");
   }
@@ -1530,7 +1858,7 @@ sub _get_node_set {
 
   $self->debug(qq{getting node-set "$path" from "$current_path"});
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   # expand abbriviated syntax
   $path =~ s/\@/attribute\:\:/g;
@@ -1554,7 +1882,7 @@ sub _get_node_set {
 	return [$$variables{$varname}->getChildNodes];
       } else {
 	# string or number?
-	return [$self->{XML_DOCUMENT}->createTextNode ($$variables{$varname})];
+	return [$self->xml_document()->createTextNode ($$variables{$varname})];
       }
     } else {
       # var does not exist
@@ -1599,7 +1927,7 @@ sub _get_node_set {
       $current_node = &__get_node_set__ ($self, $path, [$current_node], $silent);
     }
 
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
     
     return $current_node;
   }
@@ -1685,7 +2013,7 @@ sub __try_a_step__ {
 sub __parent__ {
   my ($self, $path, $node, $silent) = @_;
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   if (($node->getNodeType == DOCUMENT_NODE)
       || ($node->getNodeType == DOCUMENT_FRAGMENT_NODE)) {
     $self->debug("no parent!");;
@@ -1695,7 +2023,7 @@ sub __parent__ {
 
     $node = &__get_node_set__ ($self, $path, [$node], $silent);
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
   return $node;
 }
@@ -1721,14 +2049,14 @@ sub __indexed_element__ {
     $node = "";
   }
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   if ($node) {
     $node = &__get_node_set__ ($self, $path, [$node], $silent);
   } else {
     $self->debug("failed!");;
     $node = [];
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
   return $node;
 }
@@ -1739,41 +2067,40 @@ sub __element__ {
 
   $node = [$node->getElementsByTagName($element, $deep)];
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   if (@$node) {
     $node = &__get_node_set__($self, $path, $node, $silent);
   } else {
     $self->debug("failed!");;
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
   return $node;
 }
 
 sub __attribute__ {
-  my ($self, $attribute, $path, $node, $silent) = @_;
-
+  my ($self, $attribute, $path, $node, $silent) = @_; 
   if ($attribute eq '*') {
     $node = [$node->getAttributes->getValues];
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     if ($node) {
       $node = &__get_node_set__ ($self, $path, $node, $silent);
     } else {
       $self->debug("failed!");;
     }
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   } else {
     $node = $node->getAttributeNode($attribute);
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     if ($node) {
       $node = &__get_node_set__ ($self, $path, [$node], $silent);
     } else {
       $self->debug("failed!");;
       $node = [];
     }
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   }
 
   return $node;
@@ -1784,13 +2111,13 @@ sub __get_nodes__ {
 
   my $result = [];
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   foreach my $child ($node->getChildNodes) {
     if ($child->getNodeType == $node_type) {
       $result = [@$result, &__get_node_set__ ($self, $path, [$child], $silent)];
     }
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 	
   if (! @$result) {
     $self->debug("failed!");;
@@ -1811,13 +2138,13 @@ sub _attribute_value_of {
     $value =~ s/(\*|\?|\+)/\\$1/g;
     study ($value);
     while ($value =~ /\G[^\\]?\{(.*?[^\\]?)\}/) {
-      my $node = $self->_get_node_set ($1, $self->{XML_DOCUMENT},
+      my $node = $self->_get_node_set ($1, $self->xml_document(),
 					 $current_xml_selection_path,
 					 $current_xml_node, $variables);
       if (@$node) {
-	$self->{INDENT} += $self->{INDENT_INCR};
+	$self->_indent();
 	my $text = $self->__string__ ($$node[0]);
-	$self->{INDENT} -= $self->{INDENT_INCR};
+	$self->_outdent();
 	$value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1$text/;
       } else {
 	$value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1/;
@@ -1836,18 +2163,18 @@ sub _processing_instruction {
   my $new_PI_name = $xsl_node->getAttribute('name');
 
   if ($new_PI_name eq "xml") {
-    $self->warn("<" . $self->{XSL_NS} . "processing-instruction> may not be used to create XML");
-    $self->warn("declaration. Use <" . $self->{XSL_NS} . "output> instead...");
+    $self->warn("<" . $self->xsl_ns() . "processing-instruction> may not be used to create XML");
+    $self->warn("declaration. Use <" . $self->xsl_ns() . "output> instead...");
   } elsif ($new_PI_name) {
     my $text = $self->__string__ ($xsl_node);
-    my $new_PI = $self->{XML_DOCUMENT}->createProcessingInstruction($new_PI_name, $text);
+    my $new_PI = $self->xml_document()->createProcessingInstruction($new_PI_name, $text);
 
     if ($new_PI) {
       $self->_move_node ($new_PI, $current_result_node);
     }
   } else {
     $self->warn(q{Expected attribute "name" in <} .
-		$self->{XSL_NS} . "processing-instruction> !");
+		$self->xsl_ns() . "processing-instruction> !");
   }
 }
 
@@ -1855,7 +2182,7 @@ sub _process_with_params {
   my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
       $variables, $params) = @_;
 
-  my @params = $xsl_node->getElementsByTagName($self->{XSL_NS}. "with-param");
+  my @params = $xsl_node->getElementsByTagName($self->xsl_ns() . "with-param");
   foreach my $param (@params) {
     my $varname = $param->getAttribute('name');
 
@@ -1864,7 +2191,7 @@ sub _process_with_params {
 
       if (!$value) {
 	# process content as template
-	$value = $self->{XML_DOCUMENT}->createDocumentFragment;
+	$value = $self->xml_document()->createDocumentFragment;
 
 	$self->_evaluate_template ($param,
 				     $current_xml_node,
@@ -1878,7 +2205,7 @@ sub _process_with_params {
       }
     } else {
       $self->warn(q{Expected attribute "name" in <} .
-		  $self->{XSL_NS} . q{with-param> !});
+		  $self->xsl_ns() . q{with-param> !});
     }
   }
 
@@ -1889,17 +2216,17 @@ sub _call_template {
       $current_result_node, $variables, $oldvariables) = @_;
 
   my $params={};
-  my $newvariables = {%$variables};
+  my $newvariables = defined $variables ? {%$variables} : {} ;
   my $name = $xsl_node->getAttribute('name');
 
   if ($name) {
-    $self->debug("calling template named \"$name\"");;
+    $self->debug(qq{calling template named "$name"});
 
     $self->_process_with_params ($xsl_node, $current_xml_node,
 				   $current_xml_selection_path,
 				   $variables, $params);
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
     my $template = $self->_match_template ("name", $name, 0, '');
 
     if ($template) {
@@ -1909,10 +2236,10 @@ sub _call_template {
     } else {
       $self->warn("no template named $name found!");
     }
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   } else {
     $self->warn(q{Expected attribute "name" in <} .
-		$self->{XSL_NS} . q{call-template/>});
+		$self->xsl_ns() . q{call-template/>});
   }
 }
 
@@ -1922,12 +2249,12 @@ sub _choose {
 
   $self->debug("evaluating choose:");;
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   my $notdone = "true";
   my $testwhen = "active";
   foreach my $child ($xsl_node->getElementsByTagName ('*', 0)) {
-    if ($notdone && $testwhen && ($child->getTagName eq $self->{XSL_NS} ."when")) {
+    if ($notdone && $testwhen && ($child->getTagName eq $self->xsl_ns() ."when")) {
       my $test = $child->getAttribute ('test');
 
       if ($test) {
@@ -1943,9 +2270,9 @@ sub _choose {
 	}
       } else {
 	$self->warn(q{expected attribute "test" in <} .
-		    $self->{XSL_NS} . q{when>});
+		    $self->xsl_ns() . q{when>});
       }
-    } elsif ($notdone && ($child->getTagName eq $self->{XSL_NS} . "otherwise")) {
+    } elsif ($notdone && ($child->getTagName eq $self->xsl_ns() . "otherwise")) {
       $self->_evaluate_template ($child, $current_xml_node,
 				   $current_xml_selection_path,
 				   $current_result_node, $variables, $oldvariables);
@@ -1957,7 +2284,7 @@ sub _choose {
     $self->debug("nothing done!");;
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _if {
@@ -1966,7 +2293,7 @@ sub _if {
 
   $self->debug("evaluating if:");;
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   my $test = $xsl_node->getAttribute ('test');
 
@@ -1981,35 +2308,105 @@ sub _if {
     }
   } else {
     $self->warn(q{expected attribute "test" in <} .
-		$self->{XSL_NS} . q{if>});
+		$self->xsl_ns() . q{if>});
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub __evaluate_test__ {
   my ($self,$test, $path,$node,$variables) = @_;
 
-  #print "testing with \"$test\" and ", ref $node,"\n";
-  if ($test =~ /^\s*\@([\w\.\:\-]+)\s*!=\s*['"](.*)['"]\s*$/) {
+  my $tagname = eval { $node->getTagName() } || '';
+
+  $self->debug(qq{testing with "$test" and $tagname});
+
+  if ($test =~ /^\s*\@([\w\.\:\-]+)\s*(<=|>=|!=|<|>|=)?\s*['"]?([^'"]*?)['"]?\s*$/) {
     my $attr = $node->getAttribute($1);
-    return ($attr ne $2);
-  } elsif ($test =~ /^\s*\@([\w\.\:\-]+)\s*=\s*['"](.*)['"]\s*$/) {
-    my $attr = $node->getAttribute($1);
-    return ($attr eq $2);
-  } elsif ($test =~ /^\s*([\w\.\:\-]+)\s*!=\s*['"](.*)['"]\s*$/) {
-    my $expval=$2;
-    my $nodeset=&_get_node_set($self,$1,$self->{XML_DOCUMENT},$path,$node,$variables);
+    
+    my $test = $2 ;
+    $test =~ s/\s+//g;
+    my $expval = $3;
+    my $numeric = ($attr =~ /^\d+$/ && $expval =~ /^\d+$/ ? 1 : 0);
+
+    $self->debug("evaluating $attr $test $expval " );
+
+    if ( $test eq '!=' )
+    {
+       $self->debug("$numeric ? $attr != $expval : $attr ne $expval");
+       return $numeric ? $attr != $expval : $attr ne $expval;
+    }
+    elsif ( $test eq '=' )
+    {
+       $self->debug("$numeric ? $attr == $expval : $attr eq $expval");
+       return $numeric ? $attr == $expval : $attr eq $expval;
+    }
+    elsif ( $test eq '<' )
+    {
+       $self->debug("$numeric ? $attr < $expval : $attr lt $expval");
+       return $numeric ? $attr < $expval : $attr lt $expval;
+    }
+    elsif ( $test eq '>' )
+    { 
+       $self->debug("$numeric ? $attr > $expval : $attr gt $expval");
+       return $numeric ? $attr > $expval : $attr gt $expval;
+    }
+    elsif ( $test eq '>=' )
+    {
+       $self->debug("$numeric ? $attr >= $expval : $attr ge $expval");
+       return $numeric ? $attr >= $expval : $attr ge $expval;
+    }
+    elsif ( $test eq '<=' )
+    {
+       $self->debug("$numeric ? $attr <= $expval : $attr le $expval");
+       return $numeric ? $attr <= $expval : $attr le $expval;
+    }
+    else
+    {
+       $self->debug("no test matches");
+       return 0;
+    }
+  } elsif ($test =~ /^\s*([\w\.\:\-]+)\s*(<=|>=|!=|=|<|>)\s*['"]?([^'"]*)['"]?\s*$/) {
+    my $expval = $3;
+    my $test   = $2;
+    my $nodeset=&_get_node_set($self,$1,$self->xml_document(),$path,$node,$variables);
     return ($expval ne '') unless @$nodeset;
     my $content = &__string__($self,$$nodeset[0]);
-    return ($content ne $expval);
-  } elsif ($test =~ /^\s*([\w\.\:\-]+)\s*=\s*['"](.*)['"]\s*$/) {
-    my $expval=$2;
-    my $nodeset=&_get_node_set($self,$1,$self->{XML_DOCUMENT},$path,$node,$variables);
-    return ($expval eq '') unless @$nodeset;
-    my $content = &__string__($self,$$nodeset[0]);
-    return ($content eq $expval);
+    my $numeric = $content =~ /^\d+$/ && $expval =~ /^\d+$/ ? 1 : 0;
+
+    $self->debug("evaluating $content $test $expval");
+
+    if ( $test eq '!=' )
+    {
+       return $numeric ? $content != $expval : $content ne $expval;
+    }
+    elsif ( $test eq '=' )
+    {
+       return $numeric ? $content == $expval : $content eq $expval;
+    }
+    elsif ( $test eq '<' )
+    {
+       return $numeric ? $content < $expval : $content lt $expval;
+    }
+    elsif ( $test eq '>' )
+    { 
+       return $numeric ? $content > $expval : $content gt $expval;
+    }
+    elsif ( $test eq '>=' )
+    {
+       return $numeric ? $content >= $expval : $content ge $expval;
+    }
+    elsif ( $test eq '<=' )
+    {
+       return $numeric ? $content <= $expval : $content le $expval;
+    }
+    else
+    {
+      $self->debug("no test matches");
+      return 0;
+    }
   } else {
+    $self->debug("no match for test");
     return "";
   }
 }
@@ -2020,22 +2417,22 @@ sub _copy_of {
 
   my $nodelist;
   my $select = $xsl_node->getAttribute('select');
-  $self->debug("evaluating copy-of with select \"$select\":");;
+  $self->debug(qq{evaluating copy-of with select "$select":});;
   
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   if ($select) {
-    $nodelist = $self->_get_node_set ($select, $self->{XML_DOCUMENT},
+    $nodelist = $self->_get_node_set ($select, $self->xml_document(),
 					$current_xml_selection_path,
 					$current_xml_node, $variables);
   } else {
     $self->warn(q{expected attribute "select" in <} .
-		$self->{XSL_NS} . q{copy-of>});
+		$self->xsl_ns() . q{copy-of>});
   }
   foreach my $node (@$nodelist) {
     $self->_add_node ($node, $current_result_node, "deep");
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _copy {
@@ -2045,7 +2442,7 @@ sub _copy {
 
   $self->debug("evaluating copy:");;
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   if ($current_xml_node->getNodeType == ATTRIBUTE_NODE) {
     my $attribute = $current_xml_node->cloneNode(0);
     $current_result_node->setAttributeNode($attribute);
@@ -2060,7 +2457,7 @@ sub _copy {
 				 $current_result_node->getLastChild,
 				 $variables, $oldvariables);
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _text {
@@ -2074,16 +2471,16 @@ sub _text {
 
   $self->debug("inserting text:");
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
   $self->debug("stripping node to text:");
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   my $text = $self->__string__ ($xsl_node);
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
   if ($text ne '') {
-    my $node = $self->{XML_DOCUMENT}->createTextNode ($text);
+    my $node = $self->xml_document()->createTextNode ($text);
     if ($xsl_node->getAttribute ('disable-output-escaping') eq 'yes')
       {
       $self->debug("disabling output escaping");
@@ -2094,7 +2491,7 @@ sub _text {
     $self->debug("nothing left..");
   }
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _attribute {
@@ -2102,28 +2499,30 @@ sub _attribute {
       $current_result_node, $variables, $oldvariables) = @_;
   
   my $name = $xsl_node->getAttribute ('name');
-  $self->debug("inserting attribute named \"$name\":");
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->debug(qq{inserting attribute named "$name":});
+  $self->_indent();
 
   if ($name) {
-    my $result = $self->{XML_DOCUMENT}->createDocumentFragment;
+    my $result = $self->xml_document()->createDocumentFragment;
 
     $self->_evaluate_template ($xsl_node,
 				 $current_xml_node,
 				 $current_xml_selection_path,
 				 $result, $variables, $oldvariables);
 
-    $self->{INDENT} += $self->{INDENT_INCR};
-    my $text = $self->__string__ ($result);
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_indent();
+    my $text = $self->fix_attribute_value($self->__string__ ($result));
+
+    
+    $self->_outdent();
 
     $current_result_node->setAttribute($name, $text);
     $result->dispose();
   } else {
     $self->warn(q{expected attribute "name" in <} .
-		$self->{XSL_NS} . q{attribute>});
+		$self->xsl_ns() . q{attribute>});
   }
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _comment {
@@ -2132,23 +2531,23 @@ sub _comment {
 
   $self->debug("inserting comment:");
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
 
-  my $result = $self->{XML_DOCUMENT}->createDocumentFragment;
+  my $result = $self->xml_document()->createDocumentFragment;
 
   $self->_evaluate_template ($xsl_node,
 			       $current_xml_node,
 			       $current_xml_selection_path,
 			       $result, $variables, $oldvariables);
 
-  $self->{INDENT} += $self->{INDENT_INCR};
+  $self->_indent();
   my $text = $self->__string__ ($result);
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 
-  $self->_move_node ($self->{XML_DOCUMENT}->createComment ($text), $current_result_node);
+  $self->_move_node ($self->xml_document()->createComment ($text), $current_result_node);
   $result->dispose();
 
-  $self->{INDENT} -= $self->{INDENT_INCR};
+  $self->_outdent();
 }
 
 sub _variable {
@@ -2160,7 +2559,7 @@ sub _variable {
   if ($varname) {
     $self->debug("definition of variable \$$varname:");;
 
-    $self->{INDENT} += $self->{INDENT_INCR};
+    $self->_indent();
 
     if ( $is_param and exists $$params{$varname} ) {
       # copy from parent-template
@@ -2175,7 +2574,7 @@ sub _variable {
       if (! $value) {
 	#tough case, evaluate content as template
 
-	$value = $self->{XML_DOCUMENT}->createDocumentFragment;
+	$value = $self->xml_document()->createDocumentFragment;
 
 	$self->_evaluate_template ($xsl_node,
 				   $current_xml_node,
@@ -2186,26 +2585,78 @@ sub _variable {
       $$variables{$varname} = $value;
     }
 
-    $self->{INDENT} -= $self->{INDENT_INCR};
+    $self->_outdent();
   } else {
     $self->warn(q{expected attribute "name" in <} .
-		$self->{XSL_NS} . q{param> or <} .
-		$self->{XSL_NS} . q{variable>});
+		$self->xsl_ns() . q{param> or <} .
+		$self->xsl_ns() . q{variable>});
   }
+}			  
+
+# not implemented - but log it and make it go away
+
+sub _sort
+{
+  my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $params, $is_param) = @_;
+  
+  $self->debug("dummy process for sort");
+}
+
+# This is a no-op - attribute-sets should not appear within templates and
+# we have already processed the stylesheet wide ones.
+
+sub _attribute_set
+{
+  my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $params, $is_param) = @_;
+
+  $self->debug("in _attribute_set");
+}
+
+sub _indent
+{
+   my ( $self ) = @_;
+   $self->{INDENT} += $self->{INDENT_INCR};
+
+}
+
+sub _outdent
+{
+   my ( $self ) = @_;
+   $self->{INDENT} -= $self->{INDENT_INCR};
+}
+
+sub fix_attribute_value
+{
+   my ( $self, $text ) = @_;
+
+   # The spec say's that there can't be a literal line break in the
+   # attributes value - white space at the beginning or the end is
+   # almost certainly an mistake.
+
+   $text =~ s/^\s+//g;
+   $text =~ s/\s+$//g;
+
+   if ( $text )
+   {
+      $text =~ s/([\x0A\x0D])/sprintf("\&#%02X;",ord $1)/eg;
+   }
+
+   return $text;
 }
 
 1;
 
-__END__
-
+__DATA__
 =head1 SYNOPSIS
 
  use XML::XSLT;
 
  my $xslt = XML::XSLT->new ($xsl, warnings => 1);
 
- $xslt->transform ($xmlfile)
- print $xslt->asString
+ $xslt->transform ($xmlfile);
+ print $xslt->toString;
 
  $xslt->dispose ();
 
@@ -2398,9 +2849,9 @@ the stringified content-template.
 Not supported yet:
 - attribute 'namespace'
 
-=head2 xsl:attribute-set		no
+=head2 xsl:attribute-set		yes
 
-Not supported yet.
+Partially
 
 =head2 xsl:call-template		yes
 
@@ -2422,9 +2873,6 @@ until an xsl:otherwise is found. Limited test support, see xsl:when
 Supported.
 
 =head2 xsl:copy				partially
-
-Not supported yet:
-- attribute 'use-attribute-sets'
 
 =head2 xsl:copy-of			limited
 
@@ -2637,11 +3085,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.4 $
+Revision: $Revision: 1.13 $
    Label: $Name:  $
 
-Last Chg: $Author: hexmode $ 
-      On: $Date: 2001/01/23 04:03:02 $
+Last Chg: $Author: gellyfish $ 
+      On: $Date: 2001/12/20 09:21:42 $
 
-  RCS ID: $Id: XSLT.pm,v 1.4 2001/01/23 04:03:02 hexmode Exp $
+  RCS ID: $Id: XSLT.pm,v 1.13 2001/12/20 09:21:42 gellyfish Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $

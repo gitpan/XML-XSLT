@@ -1,16 +1,12 @@
-# $Id: params.t,v 1.1 2000/10/30 22:06:15 nejedly Exp $
+# $Id: params.t,v 1.2 2001/12/17 11:32:09 gellyfish Exp $
 # check params && the interface
 
+use Test::More tests => 7;
 use strict;
-use vars qw( $loaded );
-BEGIN { $| = 1; print "1..7\n"; }
-END {print "not ok 1\n" unless $loaded;}
-use XML::XSLT;
-print "ok 1\n";
-$loaded = 1;
+use_ok('XML::XSLT');
 
 my $parser = eval { 
-XML::XSLT->new (\<<\EOS, warnings => 'Active');
+XML::XSLT->new (<<'EOS', warnings => 'Active');
 <?xml version="1.0"?>
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
@@ -24,47 +20,24 @@ XML::XSLT->new (\<<\EOS, warnings => 'Active');
 EOS
 };
 
-if($@)
- {
- print "not ok 2 # $@\n";
- exit;
-}
-
-print "ok 2\n";
-
-if(!$parser)
- {
- print "not ok 3 # parser is null\n";
- exit;
-}
-
-print "ok 3\n";
+ok(! $@,"New from literal stylesheet");
+ok($parser,"Parser is defined");
 
 eval {
-$parser->transform(\<<\EOX);
+$parser->transform(\<<EOX);
 <?xml version="1.0"?><doc><a><b/></a><b/></doc>
 EOX
 };
 
-if($@)
- {
- print "not ok 4 # $@\n";
- exit();
-}
-print "ok 4\n";
+ok(! $@,"transform from on literal XML");
+
 
 my $outstr= eval { $parser->toString };
 
-if($@)
- {
- print "not ok 5 # $@\n";
- exit;
-}
-print "ok 5\n";
-print 'not ' unless defined $outstr;
-print "ok 6\n";
+ok(! $@, "toString works");
+
+ok($outstr,"toString created output");
 
 my $correct='[ param1=value1 ][ param1=undefined ]';
 
-print 'not ' unless(defined($outstr) and $outstr eq $correct);
-print "ok 7\n";
+ok( $correct eq $outstr,"Output is as expected");

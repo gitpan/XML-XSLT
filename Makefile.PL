@@ -11,7 +11,8 @@ WriteMakefile(
 				 SUFFIX      => '.gz'},
               VERSION_FROM  => 'lib/XML/XSLT.pm',
               PREREQ_PM     => { XML::Parser => '2.23',
-				 XML::DOM    => '1.25' },
+				 XML::DOM    => '1.25',
+                                 Test::More  => '0.33' },
 	      EXE_FILES      => ['xslt-parser'],
              );
 

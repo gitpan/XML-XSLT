@@ -1,3 +1,10 @@
+2001-12-24  Jonathan Stowe  <jns@gellyfish.com>
+	
+	* Implemented attribute-sets
+	* Stopped the output of unhandled xsl:sort in literal stylesheet
+	* Improved tests
+	* Applied patches from sourceforge
+
 2001-01-22  Mark A. Hershberger  <mah@everybody.org>
 
 	* lib/XML/XSLT.pm (__get_first_element):

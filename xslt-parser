@@ -1,6 +1,6 @@
 #!/usr/local/bin/perl -w
 
-# $Id: xslt-parser,v 1.8 2001/01/23 03:49:18 hexmode Exp $
+# $Id: xslt-parser,v 1.9 2001/03/01 05:22:45 hexmode Exp $
 
 use strict;
 use XML::XSLT;

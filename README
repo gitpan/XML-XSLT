@@ -2,10 +2,14 @@
 
 Copyright (c) 1999 Geert Josten & Egon Willighagen.
 Copyright (c) 2001 Mark A. Hershberger
+
 All rights reserved.
 
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself. 
+
+The Perl licence can be found in the README file in the Perl source
+distribution.
 
 Information can be found at: http://xmlxslt.sourceforge.net/ 
 
@@ -47,7 +51,28 @@ Then to build you run make.
 
 	make
 
+Run the tests:
+
+        make test
+
 If you have write access to the perl library directories, you may then
 install by typing (as superuser):
 
 	make install
+
+If you want to install this module somewhere other than the standard location
+then you should use:
+
+ 	perl Makefile.PL PREFIX=/location/of/libs
+
+at the first stage above and then in a program that wants to use the module
+you should put:
+
+	use lib qw(/locations/of/libs/lib/perl5);
+
+early on in the program.
+
+DEPENDENCIES
+
+This module requires XML::DOM (and its dependency XML::Parser) and also
+requires Test::More to perform its tests.
