@@ -6,6 +6,21 @@
 # and Egon Willighagen, egonw@sci.kun.nl
 #
 #    $Log: XSLT.pm,v $
+#    Revision 1.25  2004/02/19 08:38:40  gellyfish
+#    * Fixed overlapping attribute-sets
+#    * Allow multiple nodes for processing-instruction() etc
+#    * Added test for for-each
+#
+#    Revision 1.24  2004/02/18 08:34:38  gellyfish
+#    * Fixed select on "comment()" "processing-instruction()" etc
+#    * Added test for select
+#
+#    Revision 1.23  2004/02/17 10:06:12  gellyfish
+#    * Added test for xsl:copy
+#
+#    Revision 1.22  2004/02/17 08:52:29  gellyfish
+#    * 'use-attribute-sets' works in xsl:copy and recursively
+#
 #    Revision 1.21  2004/02/16 10:29:20  gellyfish
 #    * Fixed variable implementation to handle non literals
 #    * refactored test implementation
@@ -87,7 +102,7 @@ use constant NS_XHTML => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.47';
+$VERSION = '0.48';
 
 @ISA       = qw( Exporter );
 @EXPORT_OK = qw( &transform &serve );
@@ -104,12 +119,26 @@ sub new
     my %args  = $self->__parse_args(@_);
 
     $self->{DEBUG}       = defined $args{debug} ? $args{debug} : "";
-    $self->{PARSER}      = XML::DOM::Parser->new;
+	 no strict 'subs';
+
+	 if ( $self->{DEBUG} )
+    {	
+	    *__PACKAGE__::debug = \&debug;
+	 }
+	 else
+	 {
+		*__PACKAGE__::debug = sub {};
+	 }
+
+	 use strict 'subs';
+
+    $self->{INDENT}      = defined $args{indent}      ? $args{indent}      : 0;
+    $self->{PARSER}      = XML::DOM::Parser->new();
     $self->{PARSER_ARGS} =
       defined $args{DOMparser_args} ? $args{DOMparser_args} : {};
     $self->{VARIABLES}   = defined $args{variables}   ? $args{variables}   : {};
+	 $self->debug(join ' ', keys %{$self->{VARIABLES}});
     $self->{WARNINGS}    = defined $args{warnings}    ? $args{warnings}    : 0;
-    $self->{INDENT}      = defined $args{indent}      ? $args{indent}      : 0;
     $self->{INDENT_INCR} = defined $args{indent_incr} ? $args{indent_incr} : 1;
     $self->{XSL_BASE}    =
       defined $args{base} ? $args{base} : 'file://' . cwd . '/';
@@ -271,6 +300,11 @@ sub debug
 {
     my $self = shift;
     my $arg  = shift || "";
+
+	 if ($self->{DEBUG} and $self->{DEBUG} > 1 )
+	 {
+        $arg  = (caller(1))[3] . ": $arg";
+	 }
 
     print STDERR " " x $self->{INDENT}, "$arg\n"
       if $self->{DEBUG};
@@ -702,40 +736,56 @@ sub __extract_top_level_variables
     my $self = $_[0];
 
     $self->debug("Extracting variables");
-    foreach my $child ( $self->top_xsl_node()->getElementsByTagName( '*', 0 ) )
+    foreach my $child ( $self->xsl_document()->getChildNodes() )
     {
-        my ( $ns, $tag ) = split( ':', $child );
+		  next unless $child->getNodeType() == ELEMENT_NODE;
+		  my $name = $child->getNodeName();
+        my ( $ns, $tag ) = split( ':', $name );
 
-        if ( ( $tag eq '' && $self->xsl_ns() eq '' )
-            || $self->xsl_ns() eq $ns )
+		  $self->debug("$ns $tag");
+        if ( 1 ) 
+					 
+#					 ( $tag eq '' && $self->xsl_ns() eq '' )
+#            || $self->xsl_ns() eq $ns )
         {
             $tag = $ns if $tag eq '';
 
+				$self->debug($tag);
             if ( $tag eq 'variable' || $tag eq 'param' )
             {
 
                 my $name = $child->getAttribute("name");
                 if ($name)
                 {
-                    my $value = $child->getAttribute("select");
-                    if ( !$value )
+						  $self->debug("got $tag called $name");
+                    my $value = $child->getAttributeNode("select");
+                    if ( !defined $value )
                     {
-                        my $result =
-                          $self->xml_document()->createDocumentFragment;
-                        $self->_evaluate_template( $child,
-                            $self->xml_document(), '', $result );
-                        $value = $self->_string($result);
-                        $result->dispose();
+								if ( $child->getChildNodes()->getLength() )
+								{
+                           my $result =
+                              $self->xml_document()->createDocumentFragment;
+                           $self->_evaluate_template( $child,
+                                                      $self->xml_document(), 
+																		'', 
+																		$result );
+                           $value = $self->_string($result);
+                           $result->dispose();
+								}
                     }
                     else
                     {
+							   $value = $value->getValue();
                         if ( $value =~ /'(.*)'/ )
                         {
                             $value = $1;
                         }
                     }
-                    $self->debug("Setting $tag `$name' = `$value'");
-                    $self->{VARIABLES}->{$name} = $value;
+						  unless ( !defined $value ) 
+						  {
+                       $self->debug("Setting $tag `$name' = `$value'");
+                       $self->{VARIABLES}->{$name} = $value;
+						  }
                 }
                 else
                 {
@@ -827,13 +877,31 @@ sub __cache_templates
     }
 }
 
+=item xsl_output_method
+
+Get or set the <xsl:output method= attribute.  Valid arguments are 'html',
+'text' and 'xml'
+
+=cut
+
+sub xsl_output_method
+{
+    my ( $self, $method) = @_;
+
+	 if (defined $method and $method =~ /(?:html|text|xml)/ )
+	 {
+	    $self->{METHOD} = $method;
+	 }
+
+	 return exists $self->{METHOD} ? $self->{METHOD} : 'xml';
+}
+
 # private auxiliary function #
 sub __set_xsl_output
 {
     my $self = $_[0];
 
     # default settings
-    $self->{METHOD} = 'xml';
     $self->media_type('text/xml');
 
     # extraction of top-level xsl:output tag
@@ -849,7 +917,7 @@ sub __set_xsl_output
         my $media   = $attribs->getNamedItem('media-type');
         my $method  = $attribs->getNamedItem('method');
         $self->media_type( $media->getNodeValue ) if defined $media;
-        $self->{METHOD} = $method->getNodeValue if defined $method;
+        $self->xsl_output_method($method->getNodeValue) if defined $method;
 
         if ( my $omit = $attribs->getNamedItem('omit-xml-declaration') )
         {
@@ -995,6 +1063,8 @@ sub __get_attribute_sets
     my $doc     = $self->xsl_document();
     my $nsp     = $self->xsl_ns();
     my $tagname = $nsp . 'attribute-set';
+	 my %inc;
+	 my @included;
     foreach my $attribute_set ( $doc->getElementsByTagName( $tagname, 0 ) )
     {
         my $attribs = $attribute_set->getAttributes();
@@ -1003,6 +1073,15 @@ sub __get_attribute_sets
         next unless defined $name_attr;
         my $name = $name_attr->getValue();
         $self->debug("processing attribute-set $name");
+
+		  if ( my $uas = $attribs->getNamedItem('use-attribute-sets') )
+		  {
+			   $self->_indent();
+            $inc{$name} = $uas->getValue();
+				$self->debug("Attribute set $name includes $inc{$name}");
+				push @included, $name;
+			   $self->_outdent();
+		  }
 
         my $attr_set = {};
 
@@ -1031,7 +1110,16 @@ sub __get_attribute_sets
         }
 
         $self->__attribute_set_( $name, $attr_set );
+
     }
+	 foreach my $as (@included )
+	 {
+		 $self->_indent();
+		 $self->debug("adding attributes from $inc{$as} to $as");
+		 my %fix = (%{$self->__attribute_set_($as)},%{$self->__attribute_set_($inc{$as})});
+       $self->__attribute_set_($as,\%fix);
+		 $self->_outdent();
+	 }
 }
 
 # Accessor for attribute sets
@@ -1042,7 +1130,15 @@ sub __attribute_set_
 
     if ( defined $attr_hash && defined $name )
     {
-        $self->{ATTRIBUTE_SETS}->{$name} = $attr_hash;
+		  if ( exists $self->{ATTRIBUTE_SETS}->{$name}  )
+		  {
+		     %{$self->{ATTRIBUTE_SETS}->{$name}} = 
+			               ( %{$self->{ATTRIBUTE_SETS}->{$name}}, %{$attr_hash});
+		  }
+		  else
+		  {
+           $self->{ATTRIBUTE_SETS}->{$name} = $attr_hash;
+		  }
     }
 
     return defined $name
@@ -1076,6 +1172,13 @@ sub open_project
 sub transform
 {
     my $self         = shift;
+
+	 if ( keys %{$self->{VARIABLES}} )
+	 {
+		$self->debug("Adding variables");
+		push @_,'variables', $self->{VARIABLES};
+	 }
+
     my %topvariables = $self->__parse_args(@_);
 
     $self->debug("transforming document:");
@@ -1112,12 +1215,16 @@ sub process
 
     my $root_template = $self->_match_template( "match", '/', 1, '' );
 
+	 $self->debug(join ' ', keys %topvariables);
     %topvariables = (
-        %topvariables,
+        defined $topvariables{variables} ? %{$topvariables{variables}} : (),
         defined $self->{VARIABLES}
           && ref $self->{VARIABLES}
           && ref $self->{VARIABLES} eq 'ARRAY' ? @{ $self->{VARIABLES} } : ()
     );
+
+	 $self->debug(join ' ', keys %topvariables);
+
 
     $self->_evaluate_template(
         $root_template,    # starting template: the root template
@@ -1233,7 +1340,7 @@ sub print_output
     {
         print "Content-type: " . $self->media_type() . "\n\n";
 
-        if ( $self->{METHOD} eq 'xml' || $self->{METHOD} eq 'html' )
+        if ( $self->xsl_output_method =~ /(?:xml|html)/ )
         {
             unless ( $self->omit_xml_declaration() )
             {
@@ -1754,6 +1861,7 @@ sub _apply_templates
         # replacing occurences of variables:
         foreach my $varname ( keys(%$variables) )
         {
+				$self->debug("Applying variable $varname");
             $select =~ s/[^\\]\$$varname/$$variables{$varname}/g;
         }
     }
@@ -1761,7 +1869,7 @@ sub _apply_templates
     if ($select)
     {
         $self->debug(
-qq{applying templates on children $select of "$current_xml_selection_path":}
+qq{applying templates on children select of "$current_xml_selection_path":}
         );
         $children =
           $self->_get_node_set( $select, $self->xml_document(),
@@ -1775,8 +1883,11 @@ qq{applying templates on all children of "$current_xml_selection_path":}
         $children = [ $current_xml_node->getChildNodes ];
     }
 
-    $self->_process_with_params( $xsl_node, $current_xml_node,
-        $current_xml_selection_path, $variables, $params );
+    $self->_process_with_params( $xsl_node, 
+				                     $current_xml_node,
+                                 $current_xml_selection_path, 
+											$variables, 
+											$params );
 
     # process xsl:sort here
 
@@ -1867,6 +1978,7 @@ sub _for_each
         $current_result_node, $variables, $oldvariables )
       = @_;
 
+    my $ns = $self->xsl_ns();
     my $select = $xsl_node->getAttribute('select')
       || die "No `select' attribute in for-each element";
 
@@ -1885,9 +1997,20 @@ sub _for_each
         $self->debug(
 qq{applying template for each child $select of "$current_xml_selection_path":}
         );
-        my $children =
-          $self->_get_node_set( $select, $self->xml_document(),
-            $current_xml_selection_path, $current_xml_node, $variables );
+
+
+        my $children = $self->_get_node_set( $select, 
+					                              $self->xml_document(),
+                                             $current_xml_selection_path, 
+															$current_xml_node, $variables );
+
+		  my $sort = $xsl_node->getElementsByTagName("$ns:sort",0);
+
+        if ( my $nokeys = $sort->getLength() )
+		  {
+		     $self->debug("going to sort with $nokeys");
+		  }
+		  
         $self->_indent();
         my $count = 1;
         foreach my $child (@$children)
@@ -1931,7 +2054,6 @@ qq{applying template for each child $select of "$current_xml_selection_path":}
     }
     else
     {
-        my $ns = $self->xsl_ns();
         $self->warn(qq%expected attribute "select" in <${ns}for-each>%);
     }
 
@@ -2218,26 +2340,7 @@ sub _element
         $self->_evaluate_template( $xsl_node, $current_xml_node,
             $current_xml_selection_path, $result, $variables, $oldvariables );
 
-        my $attr_set = $xsl_node->getAttribute('use-attribute-sets');
-
-        if ($attr_set)
-        {
-            $self->_indent();
-            my $set_name = $attr_set;
-
-            if ( my $set = $self->__attribute_set_($set_name) )
-            {
-                $self->debug("Adding attribute-set '$set_name'");
-
-                foreach my $attr_name ( keys %{$set} )
-                {
-                    $self->debug(
-                        "Adding attribute $attr_name ->" . $set->{$attr_name} );
-                    $result->setAttribute( $attr_name, $set->{$attr_name} );
-                }
-            }
-            $self->_outdent();
-        }
+	 	  $self->_apply_attribute_set($xsl_node,$result);
         $current_result_node->appendChild($result);
     }
     else
@@ -2246,6 +2349,32 @@ sub _element
             q{expected attribute "name" in <} . $self->xsl_ns() . q{element>} );
     }
     $self->_outdent();
+}
+
+sub _apply_attribute_set
+{
+   my ( $self,$xsl_node, $output_node) = @_;
+
+   my $attr_set = $xsl_node->getAttribute('use-attribute-sets');
+
+   if ($attr_set)
+   {
+      $self->_indent();
+      my $set_name = $attr_set;
+
+      if ( my $set = $self->__attribute_set_($set_name) )
+      {
+         $self->debug("Adding attribute-set '$set_name'");
+
+         foreach my $attr_name ( keys %{$set} )
+         {
+           $self->debug(
+                        "Adding attribute $attr_name ->" . $set->{$attr_name} );
+           $output_node->setAttribute( $attr_name, $set->{$attr_name} );
+         }
+      }
+      $self->_outdent();
+   }
 }
 
 {
@@ -2424,6 +2553,7 @@ sub _get_node_set
     $current_node ||= $root_node;
     $silent       ||= 0;
 
+	 %{$variables} = (%{$self->{VARIABLES}}, %{$variables});
     $self->debug(qq{getting node-set "$path" from "$current_path"});
 
     $self->_indent();
@@ -2439,6 +2569,8 @@ sub _get_node_set
     if ( $path =~ /^\$([\w\.\-]+)$/ )
     {
         my $varname = $1;
+		  $self->debug("looking for variable $varname");
+		  $self->debug(join ' ', keys %{$variables});
         my $var     = $$variables{$varname};
         if ( defined $var )
         {
@@ -2528,8 +2660,9 @@ sub _get_node_set
         }
         else
         {
-            $current_node =
-              &__get_node_set__( $self, $path, [$current_node], $silent );
+            $current_node = $self->__get_node_set__( $path, 
+																	  [$current_node], 
+																	  $silent );
         }
 
         $self->_outdent();
@@ -2557,7 +2690,7 @@ sub __get_node_set__
         my $list = [];
         foreach my $item (@$node)
         {
-            my $sublist = &__try_a_step__( $self, $path, $item, $silent );
+            my $sublist = $self->__try_a_step__( $path, $item, $silent );
             push( @$list, @$sublist );
         }
         return $list;
@@ -2568,7 +2701,9 @@ sub __try_a_step__
 {
     my ( $self, $path, $node, $silent ) = @_;
 
-    study($path);
+
+	 $self->_indent();
+	 $self->debug("Trying $path >");
     if ( $path =~ s/^\/parent\:\:node\(\)// )
     {
 
@@ -2612,14 +2747,6 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
         return &__indexed_element__( $self, $2, $3, $path, $node, $silent );
 
     }
-    elsif ( $path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)// )
-    {
-
-        # /elem #
-        $self->debug(qq{getting element `$2' ("$path")});
-        return &__element__( $self, $2, $path, $node, $silent );
-
-    }
     elsif ( $path =~ s/^\/(child\:\:|)text\(\)// )
     {
 
@@ -2633,8 +2760,10 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # /processing-instruction() #
         $self->debug(qq{getting processing instruction ("$path")});
-        return &__get_nodes__( $self, PROCESSING_INSTRUCTION_NODE, $path, $node,
-            $silent );
+        return $self->__get_nodes__(PROCESSING_INSTRUCTION_NODE, 
+					                     $path, 
+												$node,
+                                    $silent );
 
     }
     elsif ( $path =~ s/^\/(child\:\:|)comment\(\)// )
@@ -2643,6 +2772,14 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
         # /comment() #
         $self->debug(qq{getting comment ("$path")});
         return &__get_nodes__( $self, COMMENT_NODE, $path, $node, $silent );
+
+    }
+    elsif ( $path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)// )
+    {
+
+        # /elem #
+        $self->debug(qq{getting element `$2' ("$path")});
+        return &__element__( $self, $2, $path, $node, $silent );
 
     }
     else
@@ -2790,9 +2927,8 @@ sub __get_nodes__
     {
         if ( $child->getNodeType == $node_type )
         {
-            $result =
-              [ @$result,
-                &__get_node_set__( $self, $path, [$child], $silent ) ];
+            push @{$result}, @{$self->__get_node_set__($path, 
+									                            [$child], $silent )};
         }
     }
     $self->_outdent();
@@ -3183,6 +3319,7 @@ sub _copy
     else
     {
         $self->_add_node( $current_xml_node, $current_result_node );
+		  $self->_apply_attribute_set($xsl_node,$current_result_node->getLastChild());
         $self->_evaluate_template( $xsl_node, $current_xml_node,
             $current_xml_selection_path, $current_result_node->getLastChild,
             $variables, $oldvariables );
@@ -3809,8 +3946,6 @@ Not supported yet:
 - attribute 'disable-output-escaping'
 
 =item xsl:variable			partial
-
-Variables can be set with either a literal or nodepath in the select
 or from literal text in the stylesheet.
 
 =item xsl:when				limited
@@ -3944,11 +4079,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.21 $
+Revision: $Revision: 1.25 $
    Label: $Name:  $
 
 Last Chg: $Author: gellyfish $ 
-      On: $Date: 2004/02/16 10:29:20 $
+      On: $Date: 2004/02/19 08:38:40 $
 
-  RCS ID: $Id: XSLT.pm,v 1.21 2004/02/16 10:29:20 gellyfish Exp $
+  RCS ID: $Id: XSLT.pm,v 1.25 2004/02/19 08:38:40 gellyfish Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $

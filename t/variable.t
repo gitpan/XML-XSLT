@@ -2,7 +2,8 @@
 # Test for correct operation of variables
 # $Id: variable.t,v 1.1 2004/02/16 10:29:20 gellyfish Exp $
 
-use Test::More tests => 13;
+
+use Test::More tests => 14;
 use strict;
 
 use vars qw($DEBUGGING);
@@ -144,3 +145,33 @@ eval
 ok(!$@,'got some output');
 
 ok($outstr eq $correct,'Got expected output');
+
+eval
+{
+    $stylesheet =<<'EOS';
+<?xml version='1.0' encoding='utf-8'?>
+<xsl:stylesheet version='1.0' xmlns:xsl='http://www.w3.org/1999/XSL/Transform'>
+<xsl:param name='param1'/>
+<xsl:param name='param2'/>
+<xsl:template match='test'><p>param1 = <xsl:value-of select="$param1"/></p><p>param2 = <xsl:value-of select="$param2"/></p>
+</xsl:template>
+</xsl:stylesheet>
+EOS
+
+   $xml =<<EOX;
+<?xml version='1.0' encoding='utf-8'?>
+<doc><test comment='testing...'/></doc>
+EOX
+
+   $parser = XML::XSLT->new($stylesheet, debug => $DEBUGGING,
+                            variables => { param1 => "One", param2 => "Two" });
+
+   $parser->transform(\$xml);
+
+   $outstr = $parser->toString();
+
+   $correct = '<p>param1 = One</p><p>param2 = Two</p>';
+   die "$outstr ne $correct" unless $outstr eq $correct;
+};
+
+ok(!$@,"external variables work as expected");

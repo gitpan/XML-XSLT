@@ -1,5 +1,5 @@
 # Test that xsl:comment works
-# $Id: comment.t,v 1.1 2001/12/17 11:32:08 gellyfish Exp $
+# $Id: comment.t,v 1.2 2004/02/17 10:06:12 gellyfish Exp $
 
 use strict;
 
@@ -13,7 +13,6 @@ use_ok('XML::XSLT');
 
 eval
 {
-
   my $stylesheet =<<EOS;
 <?xml version="1.0"?>
 <xsl:stylesheet xmlns:xsl="http://www.w3.org/1999/XSL/Transform">

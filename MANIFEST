@@ -42,13 +42,16 @@ t/attributes.t
 t/call_template.t
 t/cdata_sect.t
 t/comment.t
+t/copy.t
 t/doe.t
 t/features.t
+t/for-each.t
 t/forward.t
 t/output.t
 t/params.t
 t/pattern.t
 t/pi.t
+t/select.t
 t/spec_examples.t
 t/text_nodes.t
 t/variable.t
