@@ -1,5 +1,5 @@
 # Test for 'output'  (which is hopefully fixed)
-# $Id: output.t,v 1.2 2001/12/19 21:06:31 gellyfish Exp $
+# $Id: output.t,v 1.3 2002/01/09 09:17:40 gellyfish Exp $
 
 use Test::More tests => 7;
 use strict;
@@ -52,10 +52,11 @@ warn $@ if $DEBUGGING;
 
 ok(! $@, "transform");
 
-my $correct = "\n<foo>This is a test</foo>\n";
+my $correct = "<foo>This is a test</foo>";
 
 my $outstr;
 
+warn $outstr if $DEBUGGING;
 eval
 {
   $outstr = $parser->toString();
@@ -75,6 +76,8 @@ $correct =<<EOC;
 <foo>This is a test</foo>
 EOC
 
+chomp($correct);
+
 eval
 {
    $outstr = $parser->serve(\$xml,http_headers => 0);
@@ -87,5 +90,4 @@ warn $outstr if $DEBUGGING;
 ok(!$@,"serve(), works");
 
 ok($outstr eq $correct,"Output meets expectations with declarations");
-
 

@@ -6,6 +6,31 @@
 # and Egon Willighagen, egonw@sci.kun.nl
 #
 #    $Log: XSLT.pm,v $
+#    Revision 1.20  2003/06/24 16:34:51  gellyfish
+#    * Allowed both name and match attributes in templates
+#    * Lost redefinition warning with perl 5.8
+#
+#    Revision 1.19  2002/02/18 09:05:14  gellyfish
+#    Refactoring
+#
+#    Revision 1.18  2002/01/16 21:05:27  gellyfish
+#    * Added the manpage as an example
+#    * Started to properly implement omit-xml-declaration
+#
+#    Revision 1.17  2002/01/13 10:35:00  gellyfish
+#    Updated pod
+#
+#    Revision 1.16  2002/01/09 09:17:40  gellyfish
+#    * added test for <xsl:text>
+#    * Stylesheet whitespace stripping as per spec and altered tests ...
+#
+#    Revision 1.15  2002/01/08 10:11:47  gellyfish
+#    * First cut at cdata-section-element
+#    * test for above
+#
+#    Revision 1.14  2001/12/24 16:00:19  gellyfish
+#    * Version released to CPAN
+#
 #    Revision 1.13  2001/12/20 09:21:42  gellyfish
 #    More refactoring
 #
@@ -58,13 +83,12 @@ use constant NS_XHTML        => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.40';
+$VERSION = '0.45';
 
 @ISA         = qw( Exporter );
 @EXPORT_OK   = qw( &transform &serve );
 
-# pretty print HTML tags (<BR /> etc...)
-XML::DOM::setTagCompression (\&__my_tag_compression);
+
 
 my %deprecation_used;
 
@@ -93,8 +117,8 @@ sub new {
     ? $args{base}    : 'file://' . cwd . '/';
   $self->{XML_BASE}        = defined $args{base}
     ? $args{base}    : 'file://' . cwd . '/';
-  $self->{USE_DEPRECATED}  = defined $args{use_deprecated}
-    ? $args{use_deprecated} : 0;
+
+  $self->use_deprecated($args{use_deprecated}) if exists $args{use_deprecated};
 
   $self->debug("creating parser object:");
 
@@ -105,7 +129,31 @@ sub new {
   return $self;
 }
 
+sub use_deprecated
+{
+   my ( $self, $use_deprecated ) = @_;
+
+   if ( defined $use_deprecated )
+   {
+     $self->{USE_DEPRECATED} = $use_deprecated;
+   }
+
+   return $self->{USE_DEPRECATED} || 0;
+}
+
 sub DESTROY {}			# Cuts out random dies on includes
+
+sub default_xml_version
+{
+    my ( $self, $xml_version ) = @_;
+
+    if ( defined $xml_version )
+    {
+       $self->{DEFAULT_XML_VERSION} = $xml_version;
+    }
+
+    return $self->{DEFAULT_XML_VERSION} ||= '1.0';
+}
 
 sub serve {
   my $self = shift;
@@ -115,8 +163,9 @@ sub serve {
 
   $args{http_headers}    = 1 unless defined $args{http_headers};
   $args{xml_declaration} = 1 unless defined $args{xml_declaration};
-  $args{xml_version}     = "1.0" unless defined $args{xml_version};
-  $args{doctype}         = "SYSTEM" unless defined $args{doctype};
+  $args{xml_version}     = $self->default_xml_version()
+                                       unless defined $args{xml_version};
+  $args{doctype}         = 'SYSTEM' unless defined $args{doctype};
   $args{clean}           = 0 unless defined $args{clean};
 
   $ret = $self->transform($args{Source})->toString;
@@ -137,7 +186,7 @@ sub serve {
 
   if (my $doctype = $self->doctype()) 
   {
-    $ret = $doctype . $ret;
+    $ret = $doctype . "\n" . $ret;
   }
 
 
@@ -159,7 +208,7 @@ sub xml_declaration
 {
    my ( $self, $xml_version, $output_encoding ) = @_;
 
-   $xml_version ||= '1.0';
+   $xml_version ||= $self->default_xml_version();
    $output_encoding ||= $self->output_encoding();
 
    return qq{<?xml version="$xml_version" encoding="$output_encoding"?>};
@@ -329,7 +378,7 @@ sub __parse_args {
   my $self = shift;
   my %args;
 
-  if(@_ % 2 == 1) {
+  if(@_ % 2 ) {
     $args{Source} = shift;
     %args = (%args, @_);
   } else {
@@ -337,7 +386,7 @@ sub __parse_args {
     if(not exists $args{Source}) {
       my $name = [caller(1)]->[3];
       carp "Argument syntax of call to $name deprecated.  See the documentation for $name"
-	unless $self->{USE_DEPRECATED}
+	unless $self->use_deprecated()
 	  or exists $deprecation_used{$name};
       $deprecation_used{$name} = 1;
       %args = ();
@@ -446,14 +495,23 @@ sub __get_stylesheet {
   my $xsl_ns = $self->xsl_ns();
   my $xsl = $self->xsl_document();
 
-  foreach my $child ($xsl->getElementsByTagName ('*', 0)) {
-    my ($ns, $tag) = split(':', $child->getTagName);
-    if(not defined $tag) {
+  foreach my $child ($xsl->getElementsByTagName ('*', 0)) 
+  {
+    my ($ns, $tag) = split(':', $child->getTagName());
+    if(not defined $tag) 
+    {
       $tag = $ns;
       $ns  = $self->default_ns();
     }
-    if ($tag eq 'stylesheet' ||
-	$tag eq 'transform') {
+    if ($tag eq 'stylesheet' || $tag eq 'transform') 
+    {
+      if ( my $attributes = $child->getAttributes())
+      {
+         my $version = $attributes->getNamedItem('version'); 
+
+         $self->xslt_version($version->getNodeValue()) if $version;
+      }
+
       $stylesheet = $child;
       last;
     }
@@ -476,10 +534,22 @@ sub __get_stylesheet {
   $self->xsl_document($stylesheet);
 }
 
+sub xslt_version
+{
+   my ( $self, $xslt_version ) = @_;
+
+   if ( defined $xslt_version )
+   {
+       $self->{XSLT_VERSION} = $xslt_version;
+   }
+
+   return $self->{XSLT_VERSION} ||= '1.0';
+}
+
 # private auxiliary function #
 sub __get_first_element {
   my ($self) = @_;
-  my $node = $self->xsl_document()->getFirstChild;
+  my $node = $self->xsl_document()->getFirstChild();
 
   $node = $node->getNextSibling
     until ref $node eq 'XML::DOM::Element';
@@ -699,22 +769,10 @@ sub __cache_templates {
   foreach my $template (reverse $self->templates()) {
     if ($template->getParentNode->getTagName =~
 	/^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/) {
-      my $match = $template->getAttribute ('match');
-      my $name = $template->getAttribute ('name');
-      if ($match && $name) {
-	$self->warn(qq{defining a template with both a "name" and a "match" attribute is not allowed!});
-	push (@{$self->{TEMPLATE_MATCH}}, "");
-	push (@{$self->{TEMPLATE_NAME}}, "");
-      } elsif ($match) {
-	push (@{$self->{TEMPLATE_MATCH}}, $match);
-	push (@{$self->{TEMPLATE_NAME}}, "");
-      } elsif ($name) {
-	push (@{$self->{TEMPLATE_MATCH}}, "");
-	push (@{$self->{TEMPLATE_NAME}}, $name);
-      } else {
-	push (@{$self->{TEMPLATE_MATCH}}, "");
-	push (@{$self->{TEMPLATE_NAME}}, "");
-      }
+      my $match = $template->getAttribute ('match') || '';
+      my $name = $template->getAttribute ('name') || '';
+      push (@{$self->{TEMPLATE_MATCH}}, $match);
+      push (@{$self->{TEMPLATE_NAME}}, $name);
     }
   }
 }
@@ -726,7 +784,6 @@ sub __set_xsl_output {
   # default settings
   $self->{METHOD} = 'xml';
   $self->media_type('text/xml');
-  $self->{OMIT_XML_DECL} = 'yes';
 
   # extraction of top-level xsl:output tag
   my ($output) = 
@@ -740,15 +797,26 @@ sub __set_xsl_output {
     $self->media_type($media->getNodeValue) if defined $media;
     $self->{METHOD} = $method->getNodeValue if defined $method;
 
-    my $omit = $attribs->getNamedItem('omit-xml-declaration');
-    $self->{OMIT_XML_DECL} = $omit ? $omit->getNodeValue : 'no';
+    if (my $omit = $attribs->getNamedItem('omit-xml-declaration'))
+    {
+        if ($omit->getNodeValue() =~ /^(yes|no)$/)
+        {
+            $self->omit_xml_declaration($1);
+        }
+        else
+        {
 
-    if ($self->{OMIT_XML_DECL} ne 'yes' && $self->{OMIT_XML_DECL} ne 'no') {
-      $self->warn(qq{Wrong value for attribute "omit-xml-declaration" in\n\t} .
-		  $self->xsl_ns() . qq{output, should be "yes" or "no"});
+           # I would say that this should be fatal
+           # Perhaps there should be a 'strict' option to the constructor
+
+           my $m = qq{Wrong value for attribute "omit-xml-declaration" in\n\t} .
+		   $self->xsl_ns() . qq{output, should be "yes" or "no"};
+           $self->warn($m);
+        }
     }
 
-    if ( $self->{OMIT_XML_DECL} eq 'no' ) {
+    unless ( $self->omit_xml_declaration()) 
+    {
       my $output_ver = $attribs->getNamedItem('version');
       my $output_enc = $attribs->getNamedItem('encoding');
       $self->output_version($output_ver->getNodeValue)
@@ -756,7 +824,8 @@ sub __set_xsl_output {
       $self->output_encoding($output_enc->getNodeValue)
 	if defined $output_enc;
 
-      if (not $self->output_version() || not $self->output_encoding()) {
+      if (not $self->output_version() || not $self->output_encoding()) 
+      {
 	$self->warn(qq{Expected attributes "version" and "encoding" in\n\t} .
 		    $self->xsl_ns() . "output");
       }
@@ -770,10 +839,82 @@ sub __set_xsl_output {
 
     my $ds = defined $doctype_system ?  $doctype_system->getNodeValue : '';
     $self->doctype_system($ds);
+
+    # cdata-section-elements should only be used if the output type
+    # is XML but as we are not checking that right now ...
+
+    my $cdata_section = $attribs->getNamedItem('cdata-section-elements');
+
+    if ( defined $cdata_section ) 
+    {
+       my $cdata_sections = [];
+       @{$cdata_sections} = split /\s+/, $cdata_section->getNodeValue();        
+       $self->cdata_sections($cdata_sections);
+    }
   } else {
     $self->debug("Default Output options being used");
   }
 }
+
+sub omit_xml_declaration
+{
+   my ( $self, $omit_xml_declaration ) = @_;
+
+   if ( defined $omit_xml_declaration )
+   {
+      if ( $omit_xml_declaration =~ /^(yes|no)$/ )
+      {
+         $self->{OMIT_XML_DECL} = ($1 eq 'yes');
+      }
+      else
+      {
+         $self->{OMIT_XML_DECL} = $omit_xml_declaration ? 1 : 0;
+      }
+   }
+
+   return exists $self->{OMIT_XML_DECL} ? $self->{OMIT_XML_DECL} : 0;
+}
+
+sub cdata_sections
+{
+   my ( $self, $cdata_sections ) = @_;
+
+   if ( defined $cdata_sections )
+   {
+      $self->{CDATA_SECTIONS} = $cdata_sections;
+   }
+
+   $self->{CDATA_SECTIONS} = [] unless exists $self->{CDATA_SECTIONS};
+
+   return wantarray() ? @{$self->{CDATA_SECTIONS}} : $self->{CDATA_SECTIONS};
+}
+
+
+sub is_cdata_section
+{
+    my ( $self, $element ) = @_;
+
+    my %cdata_sections;
+
+    my @cdata_temp = $self->cdata_sections();
+    @cdata_sections{@cdata_temp} = (1) x @cdata_temp;
+
+    my $tagname;
+
+    if ( defined $element and ref($element) and ref($element) eq 'XML::DOM' )
+    {
+       $tagname = $element->getTagName();
+    }
+    else
+    {
+       $tagname = $element;
+    }
+
+    # Will need to do namespace checking on this really
+
+    return exists $cdata_sections{$tagname} ? 1 : 0;
+}
+
 
 sub output_version
 {
@@ -784,7 +925,8 @@ sub output_version
      $self->{OUTPUT_VERSION} = $output_version;
    }
 
-   return exists $self->{OUTPUT_VERSION} ? $self->{OUTPUT_VERSION} : '1.0';
+   return exists $self->{OUTPUT_VERSION} ? $self->{OUTPUT_VERSION} : 
+                                           $self->default_xml_version();
 }
 
 sub __get_attribute_sets
@@ -855,7 +997,7 @@ sub open_project {
   my ($xmlflag, $xslflag, %args) = @_;
 
   carp "open_project is deprecated."
-    unless $self->{USE_DEPRECATED}
+    unless $self->use_deprecated()
       or exists $deprecation_used{open_project};
   $deprecation_used{open_project} = 1;
 
@@ -895,6 +1037,7 @@ sub transform {
 
   $self->debug("done!");
   $self->_outdent();
+  $self->result_document()->normalize();
   return $self->result_document();
 }
 
@@ -945,7 +1088,7 @@ sub AUTOLOAD {
 
   if (exists $deprecation{$name}) {
     carp "$name is deprecated.  Use $deprecation{$name}"
-      unless $self->{USE_DEPRECATED}
+      unless $self->use_deprecated()
 	or exists $deprecation_used{$name};
     $deprecation_used{$name} = 1;
     eval qq{return \$self->$deprecation{$name}(\@_)};
@@ -956,35 +1099,27 @@ sub AUTOLOAD {
 
 sub _my_print_text {
   my ($self, $FILE) = @_;
-
-  # This should work with either XML::DOM 1.25 or XML::DOM 1.27
+  
   if (UNIVERSAL::isa($self, "XML::DOM::CDATASection")) {
-    $FILE->print ($self->getData);
+    $FILE->print ($self->getData());
   } else {
-    $FILE->print (XML::DOM::encodeText($self->getData, "<&"));
+    $FILE->print (XML::DOM::encodeText($self->getData(), "<&"));
   }
 }
 
 sub toString {
   my $self = $_[0];
 
+  local $^W;
   local *XML::DOM::Text::print = \&_my_print_text;
 
-  my $string = $self->result_document()->toString;
-  #  $string =~ s/\n\s*\n(\s*)\n/\n$1\n/g;  # Substitute multiple empty lines by one
-  #  $string =~ s/\/\>/ \/\>/g;            # Insert a space before every />
-
-  # get rid of CDATA wrappers
-  #  if (! $self->{printCDATA}) {
-  #    $string =~ s/\<\!\[CDATA\[//g;
-  #    $string =~ s/\]\]>//g;
-  #  }
+  my $string = $self->result_document()->toString();
 
   return $string;
 }
 
 sub to_dom {
-  my $self = shift;
+  my ($self) = @_;
 
   return $self->result_document();
 }
@@ -1012,7 +1147,7 @@ sub print_output {
   #  exit;
 
   carp "print_output is deprecated.  Use serve."
-    unless $self->{USE_DEPRECATED}
+    unless $self->use_deprecated()
       or exists $deprecation_used{print_output};
   $deprecation_used{print_output} = 1;
 
@@ -1020,7 +1155,7 @@ sub print_output {
     print "Content-type: " . $self->media_type() . "\n\n";
 
     if ($self->{METHOD} eq 'xml' || $self->{METHOD} eq 'html') {
-      if ($self->{OMIT_XML_DECL} eq 'no') 
+      unless ($self->omit_xml_declaration()) 
       {      
         print $self->xml_declaration(),"\n"; 
       }
@@ -1344,7 +1479,11 @@ sub _evaluate_template {
 				$current_result_node, $variables,
 				$oldvariables);
     } elsif ($node_type == TEXT_NODE) {
-        $self->_add_node ($child, $current_result_node);
+        my $value = $child->getNodeValue;
+        if ( length($value) and $value !~ /^[\x20\x09\x0D\x0A]+$/s )
+        {
+           $self->_add_node ($child, $current_result_node);
+        }
     } elsif ($node_type == CDATA_SECTION_NODE) {
       my $text = $self->xml_document()->createTextNode ($child->getData);
       $self->_add_node($text, $current_result_node);
@@ -1636,6 +1775,10 @@ sub _evaluate_element {
       $self->_sort ($xsl_node, $current_xml_node,
                     $current_xml_selection_path,
                     $current_result_node, $variables, $oldvariables, 0);
+    } elsif ( $xsl_tag eq 'fallback' ) { 
+      $self->_fallback ($xsl_node, $current_xml_node,
+                    $current_xml_selection_path,
+                    $current_result_node, $variables, $oldvariables, 0);
     } elsif ( $xsl_tag eq 'attribute-set' ) { 
       $self->_attribute_set ($xsl_node, $current_xml_node,
                              $current_xml_selection_path,
@@ -1648,12 +1791,55 @@ sub _evaluate_element {
     }
   } else {
     $self->debug($ns ." does not match ". $self->xsl_ns());
-    $self->_check_attributes_and_recurse ($xsl_node, $current_xml_node,
+
+    # not entirely sure if this right but the spec is a bit vague
+
+    if ( $self->is_cdata_section($xsl_tag) )
+    {
+       $self->debug("This is a CDATA section element");
+       $self->_add_cdata_section($xsl_node, $current_xml_node,
+                                            $current_xml_selection_path,
+                                            $current_result_node, $variables, 
+                                            $oldvariables);
+    }
+    else
+    {
+       $self->debug("This is a literal element");
+       $self->_check_attributes_and_recurse ($xsl_node, $current_xml_node,
 					    $current_xml_selection_path,
-					    $current_result_node, $variables, $oldvariables);
+					    $current_result_node, $variables, 
+                                            $oldvariables);
+    }
   }
 
   $self->_outdent();
+}
+
+sub _add_cdata_section
+{
+  my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
+
+  my $node = $self->xml_document()->createElement($xsl_node->getTagName);
+
+  my $cdata = '';
+
+  foreach my $child_node ( $xsl_node->getChildNodes() )
+  {
+    if ($child_node->can('asString') )
+    {
+      $cdata .= $child_node->asString();
+    }
+    else
+    {
+      $cdata .= $child_node->getNodeValue();
+    }
+  }
+
+  $node->addCDATA($cdata);
+
+  $current_result_node->appendChild($node);
+
 }
 
 sub _add_and_recurse {
@@ -1746,6 +1932,10 @@ sub _value_of {
       $current_result_node, $variables) = @_;
 
   my $select = $xsl_node->getAttribute('select');
+
+  # Need to determine here whether the value is an XPath expression
+  # and act accordingly
+
   my $xml_node;
 
   if (defined $select) {
@@ -1757,7 +1947,7 @@ sub _value_of {
 
     $self->_indent();
     my $text = '';
-    $text = $self->__string__ ($$xml_node[0]) if @$xml_node;
+    $text = $self->__string__ ($xml_node->[0]) if @{$xml_node};
     $self->_outdent();
 
     if ($text ne '') {
@@ -2482,7 +2672,7 @@ sub _text {
   if ($text ne '') {
     my $node = $self->xml_document()->createTextNode ($text);
     if ($xsl_node->getAttribute ('disable-output-escaping') eq 'yes')
-      {
+    {
       $self->debug("disabling output escaping");
       bless $node,'XML::XSLT::DOM::TextDOE' ;
     }
@@ -2490,6 +2680,8 @@ sub _text {
   } else {
     $self->debug("nothing left..");
   }
+
+  $current_result_node->normalize();
 
   $self->_outdent();
 }
@@ -2503,21 +2695,28 @@ sub _attribute {
   $self->_indent();
 
   if ($name) {
-    my $result = $self->xml_document()->createDocumentFragment;
+    if ( $name =~ /^xmlns:/ )
+    {
+       $self->debug("Won't create namespace declaration");
+    }
+    else
+    {
+       my $result = $self->xml_document()->createDocumentFragment;
 
-    $self->_evaluate_template ($xsl_node,
-				 $current_xml_node,
-				 $current_xml_selection_path,
-				 $result, $variables, $oldvariables);
+       $self->_evaluate_template ($xsl_node,
+                                  $current_xml_node,
+                                  $current_xml_selection_path,
+                                  $result, $variables, $oldvariables);
 
-    $self->_indent();
-    my $text = $self->fix_attribute_value($self->__string__ ($result));
+       $self->_indent();
+       my $text = $self->fix_attribute_value($self->__string__ ($result));
 
     
-    $self->_outdent();
+       $self->_outdent();
 
-    $current_result_node->setAttribute($name, $text);
-    $result->dispose();
+       $current_result_node->setAttribute($name, $text);
+       $result->dispose();
+    }
   } else {
     $self->warn(q{expected attribute "name" in <} .
 		$self->xsl_ns() . q{attribute>});
@@ -2603,6 +2802,17 @@ sub _sort
   $self->debug("dummy process for sort");
 }
 
+# Not quite sure how fallback should be implemented as the spec seems a
+# little vague to me
+
+sub _fallback
+{
+  my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $params, $is_param) = @_;
+  
+  $self->debug("dummy process for fallback");
+}
+
 # This is a no-op - attribute-sets should not appear within templates and
 # we have already processed the stylesheet wide ones.
 
@@ -2649,6 +2859,7 @@ sub fix_attribute_value
 1;
 
 __DATA__
+
 =head1 SYNOPSIS
 
  use XML::XSLT;
@@ -2658,7 +2869,7 @@ __DATA__
  $xslt->transform ($xmlfile);
  print $xslt->toString;
 
- $xslt->dispose ();
+ $xslt->dispose();
 
 =head1 DESCRIPTION
 
@@ -2686,13 +2897,15 @@ Either of the following are allowed:
 In documentation, the named parameter `Source' is always shown, but it
 is never required.
 
-=head1 METHODS
+=head2 METHODS
 
-=head2 new(Source => $xml [, %args])
+=over 4
+
+=item new(Source => $xml [, %args])
 
 Returns a new XSLT parser object.  Valid flags are:
 
-=over 4
+=over 2
 
 =item DOMparser_args
 
@@ -2725,7 +2938,7 @@ Amount to indent each level of debug message.  Defaults to 1.
 
 =back
 
-=head2 open_xml(Source => $xml [, %args])
+=item open_xml(Source => $xml [, %args])
 
 Gives the XSLT object new XML to process.  Returns an XML::DOM object
 corresponding to the XML.
@@ -2742,7 +2955,7 @@ Arguments to pase to the parser.
 
 =back
 
-=head2 open_xsl(Source => $xml, [, %args])
+=item open_xsl(Source => $xml, [, %args])
 
 Gives the XSLT object a new stylesheet to use in processing XML.
 Returns an XML::DOM object corresponding to the stylesheet.  Any
@@ -2760,18 +2973,18 @@ Arguments to pase to the parser.
 
 =back
 
-=head2 process(%variables)
+=item process(%variables)
 
 Processes the previously loaded XML through the stylesheet using the
 variables set in the argument.
 
-=head2 transform(Source => $xml [, %args])
+=item transform(Source => $xml [, %args])
 
 Processes the given XML through the stylesheet.  Returns an XML::DOM
 object corresponding to the transformed XML.  Any arguments present
 are passed to the XML::DOM::Parser.
 
-=head2 serve(Source => $xml [, %args])
+=item serve(Source => $xml [, %args])
 
 Processes the given XML through the stylesheet.  Returns a string
 containg the result.  Example:
@@ -2808,31 +3021,35 @@ The type of DOCTYPE this document is.  Defaults to SYSTEM.
 
 =back
 
-=head2 toString
+=item toString
 
 Returns the result of transforming the XML with the stylesheet as a
 string.
 
-=head2 to_dom
+=item to_dom
 
 Returns the result of transforming the XML with the stylesheet as an
 XML::DOM object.
 
-=head2 media_type
+=item media_type
 
 Returns the media type (aka mime type) of the object.
 
-=head2 dispose
+=item dispose
 
 Executes the C<dispose> method on each XML::DOM object.
 
+=back
+
 =head1 XML::XSLT Commands
 
-=head2 xsl:apply-imports		no
+=over 4
+
+=item xsl:apply-imports		no
 
 Not supported yet.
 
-=head2 xsl:apply-templates		limited
+=item xsl:apply-templates		limited
 
 Attribute 'select' is supported to the same extent as xsl:value-of
 supports path selections.
@@ -2841,7 +3058,7 @@ Not supported yet:
 - attribute 'mode'
 - xsl:sort and xsl:with-param in content
 
-=head2 xsl:attribute			partially
+=item xsl:attribute			partially
 
 Adds an attribute named to the value of the attribute 'name' and as value
 the stringified content-template.
@@ -2849,11 +3066,11 @@ the stringified content-template.
 Not supported yet:
 - attribute 'namespace'
 
-=head2 xsl:attribute-set		yes
+=item xsl:attribute-set		yes
 
 Partially
 
-=head2 xsl:call-template		yes
+=item xsl:call-template		yes
 
 Takes attribute 'name' which selects xsl:template's by name.
 
@@ -2863,33 +3080,33 @@ Weak support:
 Not supported yet:
 - xsl:sort
 
-=head2 xsl:choose			yes
+=item xsl:choose			yes
 
 Tests sequentially all xsl:whens until one succeeds or
 until an xsl:otherwise is found. Limited test support, see xsl:when
 
-=head2 xsl:comment			yes
+=item xsl:comment			yes
 
 Supported.
 
-=head2 xsl:copy				partially
+=item xsl:copy				partially
 
-=head2 xsl:copy-of			limited
+=item xsl:copy-of			limited
 
 Attribute 'select' functions as well as with
 xsl:value-of
 
-=head2 xsl:decimal-format		no
+=item xsl:decimal-format		no
 
 Not supported yet.
 
-=head2 xsl:element			yes
+=item xsl:element			yes
 
-=head2 xsl:fallback			no
+=item xsl:fallback			no
 
 Not supported yet.
 
-=head2 xsl:for-each			limited
+=item xsl:for-each			limited
 
 Attribute 'select' functions as well as with
 xsl:value-of
@@ -2897,74 +3114,74 @@ xsl:value-of
 Not supported yet:
 - xsl:sort in content
 
-=head2 xsl:if				limited
+=item xsl:if				limited
 
 Identical to xsl:when, but outside xsl:choose context.
 
-=head2 xsl:import			no
+=item xsl:import			no
 
 Not supported yet.
 
-=head2 xsl:include			yes
+=item xsl:include			yes
 
 Takes attribute href, which can be relative-local, 
 absolute-local as well as an URL (preceded by
 identifier http:).
 
-=head2 xsl:key				no
+=item xsl:key				no
 
 Not supported yet.
 
-=head2 xsl:message			no
+=item xsl:message			no
 
 Not supported yet.
 
-=head2 xsl:namespace-alias		no
+=item xsl:namespace-alias		no
 
 Not supported yet.
 
-=head2 xsl:number			no
+=item xsl:number			no
 
 Not supported yet.
 
-=head2 xsl:otherwise			yes
+=item xsl:otherwise			yes
 
 Supported.
 
-=head2 xsl:output			limited
+=item xsl:output			limited
 
 Only the initial xsl:output element is used.  The "text" output method
 is not supported, but shouldn't be difficult to implement.  Only the
 "doctype-public", "doctype-system", "omit-xml-declaration", "method",
 and "encoding" attributes have any support.
 
-=head2 xsl:param			experimental
+=item xsl:param			experimental
 
 Synonym for xsl:variable (currently). See xsl:variable for support.
 
-=head2 xsl:preserve-space		no
+=item xsl:preserve-space		no
 
 Not supported yet. Whitespace is always preserved.
 
-=head2 xsl:processing-instruction	yes
+=item xsl:processing-instruction	yes
 
 Supported.
 
-=head2 xsl:sort				no
+=item xsl:sort				no
 
 Not supported yet.
 
-=head2 xsl:strip-space			no
+=item xsl:strip-space			no
 
 Not supported yet. No whitespace is stripped.
 
-=head2 xsl:stylesheet			limited
+=item xsl:stylesheet			limited
 
 Minor namespace support: other namespace than 'xsl:' for xsl-commands
 is allowed if xmlns-attribute is present. xmlns URL is verified.
 Other attributes are ignored.
 
-=head2 xsl:template			limited
+=item xsl:template			limited
 
 Attribute 'name' and 'match' are supported to minor extend.
 ('name' must match exactly and 'match' must match with full
@@ -2973,15 +3190,15 @@ path or no path)
 Not supported yet:
 - attributes 'priority' and 'mode'
 
-=head2 xsl:text				yes
+=item xsl:text				yes
 
 Supported.
 
-=head2 xsl:transform			limited
+=item xsl:transform			limited
 
 Synonym for xsl:stylesheet
 
-=head2 xsl:value-of			limited
+=item xsl:value-of			limited
 
 Inserts attribute or element values. Limited support:
 
@@ -3010,12 +3227,12 @@ and combinations of these.
 Not supported yet:
 - attribute 'disable-output-escaping'
 
-=head2 xsl:variable			experimental
+=item xsl:variable			experimental
 
 Very limited. It should be possible to define a variable and use it with
 &lt;xsl:value select="$varname" /&gt; within the same template.
 
-=head2 xsl:when				limited
+=item xsl:when				limited
 
 Only inside xsl:choose. Limited test support:
 
@@ -3031,9 +3248,11 @@ Only inside xsl:choose. Limited test support:
 
 path is supported to the same extend as with xsl:value-of
 
-=head2 xsl:with-param			experimental
+=item xsl:with-param			experimental
 
 It is currently not functioning. (or is it?)
+
+=back
 
 =head1 SUPPORT
 
@@ -3053,7 +3272,61 @@ flag C<use_deprecated>.  Example:
  $parser = XML::XSLT->new($xsl, "FILE",
                           use_deprecated => 1);
 
-The deprecations will disappear by the time a 1.0 release is made.
+The deprecated methods will disappear by the time a 1.0 release is made.
+
+The deprecated methods are :
+
+=over 2
+
+=item  output_string      
+
+use toString instead
+
+=item  result_string      
+
+use toString instead
+
+=item  output             
+
+use toString instead
+
+=item  result             
+
+use toString instead
+
+=item  result_mime_type   
+
+use media_type instead
+
+=item  output_mime_type   
+
+use media_type instead
+
+=item  result_tree        
+
+use to_dom instead
+
+=item  output_tree        
+
+use to_dom instead
+
+=item  transform_document 
+
+use transform instead
+
+=item  process_project    
+
+use process instead
+
+=item open_project
+
+use C<Source> argument to B<new()> and B<transform> instead.
+
+=item print_output
+
+use B<serve()> instead.
+
+=back
 
 =head1 BUGS
 
@@ -3073,10 +3346,15 @@ the same terms and conditions as Perl.
 
 =head1 AUTHORS
 
-Geert Josten <gjosten@sci.kun.nl>,
-Egon Willighagen <egonw@sci.kun.nl>,
+Geert Josten <gjosten@sci.kun.nl>
+
+Egon Willighagen <egonw@sci.kun.nl>
+
 Mark A. Hershberger <mah@everybody.org>
-Bron Gondwana <perlcode@brong.net>,
+
+Bron Gondwana <perlcode@brong.net>
+
+Jonathan Stowe <jns@gellyfish.com>
 
 =head1 SEE ALSO
 
@@ -3085,11 +3363,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.13 $
+Revision: $Revision: 1.20 $
    Label: $Name:  $
 
 Last Chg: $Author: gellyfish $ 
-      On: $Date: 2001/12/20 09:21:42 $
+      On: $Date: 2003/06/24 16:34:51 $
 
-  RCS ID: $Id: XSLT.pm,v 1.13 2001/12/20 09:21:42 gellyfish Exp $
+  RCS ID: $Id: XSLT.pm,v 1.20 2003/06/24 16:34:51 gellyfish Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $

@@ -1,5 +1,5 @@
 # Test forward compatibility
-# $Id: forward.t,v 1.1 2001/12/17 11:32:09 gellyfish Exp $
+# $Id: forward.t,v 1.2 2002/01/09 09:17:40 gellyfish Exp $
 
 use strict;
 
@@ -65,18 +65,7 @@ print $outstr if $DEBUGGING;
 ok(! $@, 'Check it can process this');
 
 my $wanted =<<EOW;
-
-    
-        <html>
-        <head>
-          <title>XSLT 17.0 required</title>
-        </head>
-        <body>
-          <p>Sorry, this stylesheet requires XSLT 17.0.</p>
-        </body>
-        </html>
-      
-  
+<html><head><title>XSLT 17.0 required</title></head><body><p>Sorry, this stylesheet requires XSLT 17.0.</p></body></html>
 EOW
 
 chomp($wanted);
@@ -128,13 +117,7 @@ print $outstr if $DEBUGGING;
 
 ok(! $@, 'Transform this');
 
-$wanted = <<EOW;
-
-    
-         Test data
-      
-  
-EOW
+$wanted = 'Test data';
 
 chomp($wanted);
 

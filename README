@@ -76,3 +76,23 @@ DEPENDENCIES
 
 This module requires XML::DOM (and its dependency XML::Parser) and also
 requires Test::More to perform its tests.
+
+BUGS
+
+Bug reports and patches can either be reported through the sourceforge
+web site at:
+
+      http://sourceforge.net/projects/xmlxslt/
+
+or sent to the support mailling list:
+
+     xmlxslt-support@lists.sourceforge.net
+
+so they can be addressed by the development team.
+
+
+The current maintainer for CPAN is:
+
+       Jonathan Stowe <jns@gellyfish.com>
+
+

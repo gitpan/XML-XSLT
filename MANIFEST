@@ -4,6 +4,9 @@ README
 xslt-parser
 lib/XML/XSLT.pm
 MANIFEST
+examples/XSLT.xsl
+examples/XSLT.html
+examples/XSLT.xml
 examples/91-22-5.cml
 examples/91-22-5.cml.xml
 examples/91-22-5.xml
@@ -44,3 +47,6 @@ t/forward.t
 t/features.t
 t/attributes.t
 t/comment.t
+t/call_template.t
+t/cdata_sect.t
+t/text_nodes.t

@@ -1,7 +1,7 @@
 # Test that attributes work
-# $Id: attributes.t,v 1.2 2001/12/18 09:10:10 gellyfish Exp $
+# $Id: attributes.t,v 1.3 2002/01/09 09:17:40 gellyfish Exp $
 
-use Test::More tests => 3;
+use Test::More tests => 4;
 
 use strict;
 use vars qw($DEBUGGING);
@@ -27,7 +27,7 @@ EOS
 <doc><p>Some Random text</p></doc>
 EOX
 
-   my $expected = qq{<doc>\n<p test="foo">Foo</p>\n</doc>};
+   my $expected = qq{<doc><p test="foo">Foo</p></doc>};
    my $parser = XML::XSLT->new(\$stylesheet,debug => $DEBUGGING);
 
    $parser->transform(\$xml);
@@ -82,19 +82,57 @@ EOX
   my $outstr =  $parser->toString() ;
 
   my $expected =<<EOE;
-<doc>
-    <p summary="This is a summary">
-       Foo
-    </p>
-</doc>
+<doc><p summary="This is a summary">Foo</p></doc>
 EOE
 
   chomp($expected);
 
   warn "$outstr\n" if $DEBUGGING;
   die "$outstr ne $expected\n" unless $outstr eq $expected;
+
+  $parser->dispose();
 };
 
 warn "$@\n" if $DEBUGGING;
 
 ok(!$@, "attribute-set in element");
+
+eval
+{
+   my $stylesheet =<<EOS;
+<xsl:stylesheet
+  version="1.0"
+  xmlns:xsl="http://www.w3.org/1999/XSL/Transform"
+  xmlns:axsl="http://www.w3.org/1999/XSL/TransformAlias">
+
+<xsl:template match="doc">
+<doc>
+<xsl:attribute name="xmlns:xsl" namespace="whatever">http://www.w3.org/1999/XSL/Transform</xsl:attribute>
+<xsl:attribute name="attr">value</xsl:attribute>
+</doc>
+</xsl:template>
+
+</xsl:stylesheet>
+EOS
+
+  my $xml = '<doc/>';
+
+  my $parser = XML::XSLT->new(\$stylesheet,debug => $DEBUGGING);
+
+  $parser->transform(\$xml);
+
+  
+  my $outstr =  $parser->toString() ;
+
+
+
+  warn "$outstr\n" if $DEBUGGING;
+  die "$outstr contains xmlns declaration\n" if $outstr =~ /xmlns:xsl/ ;
+
+  $parser->dispose();
+
+};
+
+warn "$@\n" if $DEBUGGING;
+
+ok(!$@, "do not output namespace declaration");
