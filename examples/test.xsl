@@ -95,8 +95,8 @@
                         </xsl:when>
                       </xsl:choose>
                       <xsl:choose>
-                        <xsl:when test='CONTACT'>
-                          <xsl:value-of select='CONTACT'/><BR></BR>
+                        <xsl:when test='CONTACT-INFO'>
+                          <xsl:value-of select='CONTACT-INFO'/><BR></BR>
                         </xsl:when>
                       </xsl:choose>
                       <xsl:choose>

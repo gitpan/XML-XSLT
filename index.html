@@ -88,22 +88,6 @@
       <th align="center"><font color="white">comment</font></th>
     </tr>
     <tr>
-      <td align="center">xsl:stylesheet</td>
-      <td align="center">limited</td>
-      <td align="center">Just has to be present</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:template</td>
-      <td align="center">limited</td>
-      <td align="center">attributes match and name are supported to some extend</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:sub-template</td>
-      <td align="center">depricated!</td>
-      <td align="center">this used to implement nesting of template
-	instead of the use of apply-templates</td>
-    </tr>
-    <tr>
       <td align="center">xsl:apply-templates</td>
       <td align="center">limited</td>
       <td align="center">attribute select is supported as far as xsl:value-of
@@ -115,24 +99,21 @@
       <td align="center">takes attribute name which selects xsl:template by name</td>
     </tr>
     <tr>
-      <td align="center">xsl:include</td>
-      <td align="center">yes</td>
-      <td align="center">takes attribute href, which can be relative-local
-       absolute-local as well as an URL (preceded by identifier http:)</td>
+      <td align="center">xsl:choose</td>
+      <td align="center">limited</td>
+      <td align="center">tests sequentially all xsl:whens until one succeeds or
+       until an xsl:otherwise is found.</td>
     </tr>
     <tr>
-      <td align="center">xsl:value-of</td>
-      <td align="center">limited</td>
-      <td align="center">attribute selection, element values.
-        Examples:<br>
-	&lt;xsl:value-of select="."/&gt;
-	&lt;xsl:value-of select="/root-elem"/&gt;
-	&lt;xsl:value-of select="elem"/&gt;
-	&lt;xsl:value-of select="//elem"/&gt;
-	&lt;xsl:value-of select="elem[n]"/&gt;
-	&lt;xsl:value-of select="//elem[n]"/&gt;
-	&lt;xsl:value-of select="@attr"/&gt;
-	and combinations of these;
+      <td align="center">xsl:copy</td>
+      <td align="center">on next release</td>
+      <td align="center">takes no attributes, ignores content</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:copy-of</td>
+      <td align="center">on next release</td>
+      <td align="center">takes attribute select, which selects likewise
+       apply-templates select</td>
     </tr>
     <tr>
       <td align="center">xsl:for-each</td>
@@ -140,21 +121,10 @@
       <td align="center">is it needed?</td>
     </tr>
     <tr>
-      <td align="center">xsl:choose</td>
-      <td align="center">limited</td>
-      <td align="center">tests sequentially all xsl:whens until one succeeds or
-       until an xsl:otherwise is found.</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:when</td>
-      <td align="center">limited</td>
-      <td align="center">Example:<br>
-        &lt;xsl:when test="@attr='value'"&gt;</td>
-        &lt;xsl:when test="elem='value'"&gt;</td>
-        &lt;xsl:when test="path/[@attr='value']"&gt;</td>
-        &lt;xsl:when test="path/[elem='value']"&gt;</td>
-        &lt;xsl:when test="path/elem"&gt;</td>
-        &lt;xsl:when test="path/@attr"&gt;</td>
+      <td align="center">xsl:include</td>
+      <td align="center">yes</td>
+      <td align="center">takes attribute href, which can be relative-local
+       absolute-local as well as an URL (preceded by identifier http:)</td>
     </tr>
     <tr>
       <td align="center">xsl:otherwise</td>
@@ -170,6 +140,48 @@
       <td align="center">xsl:processing-instruction</td>
       <td align="center">yes</td>
       <td align="center">&nbsp</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:stylesheet</td>
+      <td align="center">limited</td>
+      <td align="center">Just has to be present</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:sub-template</td>
+      <td align="center">depricated!</td>
+      <td align="center">this used to implement nesting of template
+	instead of the use of apply-templates</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:template</td>
+      <td align="center">limited</td>
+      <td align="center">attributes match and name are supported to some extend</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:value-of</td>
+      <td align="center">limited</td>
+      <td align="center">attribute selection, element values.<br>
+        Examples:<br>
+	&lt;xsl:value-of select="."/&gt;<br>
+	&lt;xsl:value-of select="/root-elem"/&gt;<br>
+	&lt;xsl:value-of select="elem"/&gt;<br>
+	&lt;xsl:value-of select="//elem"/&gt;<br>
+	&lt;xsl:value-of select="elem[n]"/&gt;<br>
+	&lt;xsl:value-of select="//elem[n]"/&gt;<br>
+	&lt;xsl:value-of select="@attr"/&gt;<br>
+	and combinations of these;</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:when</td>
+      <td align="center">limited</td>
+      <td align="center">Only inside xsl:choose<br>
+      Examples:<br>
+        &lt;xsl:when test="@attr='value'"&gt;<br>
+        &lt;xsl:when test="elem='value'"&gt;<br>
+        &lt;xsl:when test="path/[@attr='value']"&gt;<br>
+        &lt;xsl:when test="path/[elem='value']"&gt;<br>
+        &lt;xsl:when test="path/elem"&gt;<br>
+        &lt;xsl:when test="path/@attr"&gt;</td>
     </tr>
   </table>
 
@@ -235,8 +247,11 @@
   
   <p>Download version 0.15 of the script <a href="dist/XML-XSLT-0.15.tar.gz">here</a>. It requires
   the modules XML::Parser (version 2.23 or higher) and XML::DOM (version 1.25 or higher) 
-  which can be obtained from <a href="http://www.perl.com/CPAN">CPAN</a>. A <a href="changelog.html">changelog</a> 
-  is available.
+  which can be obtained from <a href="http://www.perl.com/CPAN">CPAN</a>. Our module also depends on
+  the module LWP::UserAgent as was pointed out by a user. This module can also be downloaded from
+  CPAN.
+
+  <p>A <a href="changelog.html">changelog</a> is also available.
 
   <p>The first release can be downloaded <a href="dist/xslt-parser-0.1.tar.gz">here</a>.
   Other releases can be downloaded from <a href="changelog.html">changelog</a>.
@@ -247,6 +262,8 @@
     <li>xsl:template matches only /fullpath/elem, /fullpath/@attr, elem, @attr, * and @*
     <li>xsl:value-of selects only any sequence of elem and elem[n] seperated and/or preceded by a slash '/' and/or followed by @attr
   </ul>
+
+  <p>Bugs can be submitted <a href="/cgi-bin-sigma/htplp?xslt-bugs">here</a>.
   
   <h3><font color="navy" face="arial,cotton"><a class="id" name="next">What's Next?</a></font></h3>
   

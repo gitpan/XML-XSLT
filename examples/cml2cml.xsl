@@ -11,16 +11,16 @@
     <molecule id="{@ID}" convention="DictOrgChem">
         <xsl:for-each select="XVAR">
           <xsl:choose>
-	    <xsl:when test=".[@BUILTIN='BOILINGPOINT']">
+	    <xsl:when test="@BUILTIN='BOILINGPOINT'">
         <float title="BoilingPoint" units="degrees Celsius"><xsl:value-of select="."/></float>
 	    </xsl:when>
-	    <xsl:when test=".[@BUILTIN='MELTINGPOINT']">
+	    <xsl:when test="@BUILTIN='MELTINGPOINT'">
         <float title="MeltingPoint" units="degrees Celsius"><xsl:value-of select="."/></float>
 	    </xsl:when>
-            <xsl:when test=".[@BUILTIN='DENSITY']">
+            <xsl:when test="@BUILTIN='DENSITY'">
         <float title="Density" units="g/ml"><xsl:value-of select="."/></float>
 	    </xsl:when>
-            <xsl:when test=".[@BUILTIN='DIPOLEMOMENT']">
+            <xsl:when test="@BUILTIN='DIPOLEMOMENT'">
         <float title="DipoleMoment" units="Debeye"><xsl:value-of select="."/></float>
 	    </xsl:when>
           </xsl:choose>
@@ -31,10 +31,10 @@
   <xsl:template match="FORMULA">
     <xsl:for-each select="XVAR">
       <xsl:choose>
-      	<xsl:when test=".[@BUILTIN='MOLWT']">
+      	<xsl:when test="@BUILTIN='MOLWT'">
         <float title="MolecularWeight" units="g/mol"><xsl:value-of select="."/></float>
 	</xsl:when>
-	<xsl:when test=".[@BUILTIN='STIOCHIOM']">
+	<xsl:when test="@BUILTIN='STIOCHIOM'">
         <string title="Stoichiometry"><xsl:value-of select="."/></string>
 	</xsl:when>
       </xsl:choose>

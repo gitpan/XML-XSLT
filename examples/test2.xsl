@@ -21,7 +21,8 @@
         </xsl:choose>
         <!--xsl:apply-templates select="MAAND"/--><!-- /MAAND -->
         <!--xsl:value-of select="MAAND"/--><!-- /MAAND -->
-        <xsl:call-template name="agenda"/><!-- /MAAND -->
+        <!--xsl:call-template name="agenda"/--><!-- /MAAND -->
+        <xsl:copy-of select="MAAND"/><!-- /MAAND -->
 
         </TABLE>
       </BODY>

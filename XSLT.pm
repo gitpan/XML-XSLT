@@ -345,8 +345,6 @@ sub _apply_templates {
 
     $_indent -= $_indent_incr;
   }
-
-  $_indent -= $_indent_incr;
 }
 
 sub _evaluate_element {
@@ -361,27 +359,41 @@ sub _evaluate_element {
   $_indent += $_indent_incr;
 
   if ($xsl_tag =~ /^xsl:/i) {
-      if ($xsl_tag =~ /^xsl:apply-templates/i) {
+      if ($xsl_tag =~ /^xsl:apply-templates$/i) {
           $parser->_apply_templates ($xsl_node, $current_xml_node,
         			     $current_xml_selection_path,
                                      $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:call-template/i) {
+      } elsif ($xsl_tag =~ /^xsl:call-template$/i) {
           $parser->_call_template ($xsl_node, $current_xml_node,
         			   $current_xml_selection_path,
                                    $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:choose/i) {
+      } elsif ($xsl_tag =~ /^xsl:choose$/i) {
           $parser->_choose ($xsl_node, $current_xml_node,
         		    $current_xml_selection_path,
                             $current_result_node);
 
-#      } elsif ($xsl_tag =~ /^xsl:output/i) {
+      } elsif ($xsl_tag =~ /^xsl:copy$/i) {
+          $parser->_copy ($xsl_node, $current_xml_node,
+                          $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:processing-instruction/i) {
+      } elsif ($xsl_tag =~ /^xsl:copy-of$/i) {
+          $parser->_copy_of ($xsl_node, $current_xml_node,
+        		     $current_xml_selection_path,
+                             $current_result_node);
+
+      } elsif ($xsl_tag =~ /^xsl:for-each$/i) {
+          $parser->_for_each ($xsl_node, $current_xml_node,
+        		      $current_xml_selection_path,
+                              $current_result_node);
+
+#      } elsif ($xsl_tag =~ /^xsl:output$/i) {
+
+      } elsif ($xsl_tag =~ /^xsl:processing-instruction$/i) {
           $parser->_apply_templates ($xsl_node, $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:value-of/i) {
+      } elsif ($xsl_tag =~ /^xsl:value-of$/i) {
           $parser->_value_of ($xsl_node, $current_xml_node,
                               $current_xml_selection_path,
                               $current_result_node);
@@ -555,31 +567,31 @@ sub _get_node_from_path {
           print " "x$_indent,"dunno how to select from a NodeList (\"$path\")$/" if $XSLT::debug;
           warn ("get-node-from-path: Dunno how to select from a NodeList !!!$/") if $XSLT::warnings;
         }
-      } elsif ($path =~ /^\/(\w+)\[(\d+?)\]/) {
+      } elsif ($path =~ /^\/([\w:-]+)\[(\d+?)\]/) {
 
         # /elem[n] #
         print " "x$_indent,"getting indexed element $1 $2 (\"$path\")$/" if $XSLT::debug;
         return $parser->__indexed_element__($1, $2, $path, $node);
 
-      } elsif ($path =~ /^\/(\w+)/) {
+      } elsif ($path =~ /^\/([\w:-]+)/) {
 
         # /elem #
         print " "x$_indent,"getting element $1 (\"$path\")$/" if $XSLT::debug;
         return $parser->__element__($1, $path, $node, $multi);
 
-      } elsif ($path =~ /^\/\/(\w+)\[(\d+?)\]/) {
+      } elsif ($path =~ /^\/\/([\w:-]+)\[(\d+?)\]/) {
 
         # //elem[n] #
         print " "x$_indent,"getting deep indexed element $1 $2 (\"$path\")$/" if $XSLT::debug;
         return $parser->__indexed_element__($1, $2, $path, $node, "deep");
 
-      } elsif ($path =~ /^\/\/(\w+)/) {
+      } elsif ($path =~ /^\/\/([\w:-]+)/) {
 
         # //elem #
         print " "x$_indent,"getting deep element $1 (\"$path\")$/" if $XSLT::debug;
         return $parser->__element__($1, $path, $node, $multi, "deep");
 
-      } elsif ($path =~ /^\/\@(\w+)/) {
+      } elsif ($path =~ /^\/\@([\w:-]+)/) {
 
         # /@attr #
         print " "x$_indent,"getting attribute $1 (\"$path\")$/" if $XSLT::debug;
@@ -851,6 +863,99 @@ sub _evaluate_test {
     }
   }
 
+sub _copy_of {
+  my $parser = shift;
+  my $xsl_node = shift;
+  my $current_xml_node = shift;
+  my $current_xml_selection_path = shift;
+  my $current_result_node = shift;
+
+  my $nodelist;
+  my $select = $xsl_node->getAttribute('select');
+  print " "x$_indent,"evaluating copy-of with select \"$select\":$/" if $XSLT::debug;
+  
+  $_indent += $_indent_incr;
+  if ($select) {
+    $nodelist = $parser->_get_node_from_path ($select, $XSLT::xml,
+                                                 $current_xml_selection_path,
+    			  		         $current_xml_node,
+                                                 "asNodeList");
+  } else {
+    print " "x$_indent,"expected attribute \"select\" in <xsl:copy-of>$/" if $XSLT::debug;
+    warn "expected attribute \"select\" in <xsl:copy-of>$/" if $XSLT::warnings;
+  }
+  for (my $i = 0; $i < $nodelist->getLength;$i++) {
+    my $node = $nodelist->item($i);
+    $parser->_move_node ($node, $current_result_node);
+  }
+
+  $_indent -= $_indent_incr;
+}
+
+sub _copy {
+  my $parser = shift;
+  my $xsl_node = shift;
+  my $current_xml_node = shift;
+  my $current_result_node = shift;
+
+  print " "x$_indent,"evaluating copy:$/" if $XSLT::debug;
+
+  $_indent += $_indent_incr;
+    $parser->_add_node ($current_xml_node, $current_result_node);
+  $_indent -= $_indent_incr;
+}
+
+sub _for_each {
+  my $parser = shift;
+  my $xsl_node = shift;
+  my $current_xml_node = shift;
+  my $current_xml_selection_path = shift;
+  my $current_result_node = shift;
+
+  my $select = $xsl_node->getAttribute ('select');
+  if ($select) {
+    print " "x$_indent,"applying template for each child $select of \"$current_xml_selection_path\":$/" if $XSLT::debug;
+    my $children = $parser->_get_node_from_path ($select, $XSLT::xml,
+                                                 $current_xml_selection_path,
+    					         $current_xml_node,
+                                                 "asNodeList");
+    $_indent += $_indent_incr;
+
+    for (my $i = 0; $i < $children->getLength;$i++) {
+      my $child = $children->item($i);
+      my $ref = ref $child;
+      print " "x$_indent,"$ref$/" if $XSLT::debug;
+      $_indent += $_indent_incr;
+
+        my $child_xml_selection_path = $child->getNodeName;
+        $child_xml_selection_path = "$current_xml_selection_path/$child_xml_selection_path";
+
+        if ($child->getNodeType == ELEMENT_NODE) {
+          $parser->_evaluate_template ($xsl_node,
+		 	               $child,
+                                       $child_xml_selection_path,
+                                       $current_result_node);
+        } elsif ($child->getNodeType == TEXT_NODE) {
+            $parser->_add_node($child, $current_result_node);
+        } elsif ($child->getNodeType == DOCUMENT_TYPE_NODE) {
+            # skip #
+        } elsif ($child->getNodeType == COMMENT_NODE) {
+            # skip #
+        } else {
+            print " "x$_indent,"Cannot do a for-each on nodes of type $ref$/" if $XSLT::debug;
+            warn ("for-each: Dunno what to do with nodes of type $ref !!! ($child_xml_selection_path)$/") if $XSLT::warnings;
+        }
+
+      $_indent -= $_indent_incr;
+    }
+    $_indent -= $_indent_incr;
+  } else {
+    print " "x$_indent,"expected attribute \"select\" in <xsl:for-each>$/" if $XSLT::debug;
+    warn "expected attribute \"select\" in <xsl:for-each>$/" if $XSLT::warnings;
+  }
+
+}
+
 ######################################################################
 package XSLT;
 ######################################################################
@@ -861,7 +966,7 @@ BEGIN {
   use Exporter ();
   use vars qw( $VERSION @ISA @EXPORT @EXPORT_OK);
 
-  $VERSION = '0.15';
+  $VERSION = '0.16';
 
   @ISA         = qw( Exporter );
   @EXPORT_OK   = qw( $Parser $debug $warnings);
