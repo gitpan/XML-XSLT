@@ -1,4 +1,9 @@
 #!/usr/local/bin/perl -w
+
+if (!@ARGV) {
+    die "Usage: $0 [options] <project>$/$/  -d[ebug]\t\tturn debugging mode on$/  -n[oweb]\t\tdon't print content-type$/  -s[tylesheet] <file>\tuse <file> instead of <project>.xsl as template$/  -w[arnings]\t\tturns warnings on$/";
+}
+
 use XML::XSLT;
 
 ## global vars ##
