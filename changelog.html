@@ -1,6 +1,6 @@
 <html>
 <head>
-  <title>XML::XSLT (to be) Changelog</title>
+  <title>XML::XSLT Changelog</title>
   <style>
     A { color: orange }
     A.ID { color: navy }
@@ -14,6 +14,10 @@
   <table bgcolor="silver" border="0">
     <tr><td rowspan="9" bgcolor="navy" width="5">&nbsp;
     <tr><td><a href="index.html"><li><font color="black" face="arial,cotton">XML::XSLT&nbsp;Homepage</font></a><br>
+    <tr><td><a href="#v0.17"><li><font color="black" face="arial,cotton">Version&nbsp;0.17</font></a><br>          
+    <tr><td><a href="#v0.16"><li><font color="black" face="arial,cotton">Version&nbsp;0.16</font></a><br>          
+    <tr><td><a href="#v0.15"><li><font color="black" face="arial,cotton">Version&nbsp;0.15</font></a><br>
+    <tr><td><a href="#v0.14"><li><font color="black" face="arial,cotton">Version&nbsp;0.14</font></a><br>
     <tr><td><a href="#v0.13"><li><font color="black" face="arial,cotton">Version&nbsp;0.13</font></a><br>
     <tr><td><a href="#v0.12"><li><font color="black" face="arial,cotton">Version&nbsp;0.12</font></a><br>
     <tr><td><a href="#v0.11"><li><font color="black" face="arial,cotton">Version&nbsp;0.11</font></a><br>
@@ -26,7 +30,7 @@
       <a href="mailto:egonw@sci.kun.nl">Egon Willighagen</a>
     </center>
   
-  <p><i>last modified on 17th December 1999.</i>
+  <p><i>last modified on 25th of January 2000.</i>
   
   <p><hr color="navy" width="80%" align="center">
   
@@ -35,8 +39,28 @@
 </td>
 <td>
   <table bgcolor="black" width="100%" border="0">
-    <tr><td align="center"><h1><font color="white" face="arial,cotton">XML::XSLT (to be) Changelog</font></h1>
+    <tr><td align="center"><h1><font color="white" face="arial,cotton">XML::XSLT Changelog</font></h1>
   </table>
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.17" href="dist/XML-XSLT-0.17.tar.gz">v. 0.17</a></font></h3>
+
+   <p>                                                                               
+   <li>fixed a bug in the evaluation of xsl:value-of in attributes (href="script?{expr}" resulted in href="script")
+   <li>fixed a bug in xsl:value-of (selecting the value of a node twice resulted in empty value second time)
+   <li>extended functionallity of open_project: add two arguments "STRING" and you can pass strings instead of filenames
+   <li>additional support for '.' character in element and attribute names
+   <li>support for xsl:if (same functionallity as xsl:when in xsl:choose context)
+   <li>very limited support for xsl:text (entities &lt; and &gt; are (always) translated)
+                              
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.16" href="dist/XML-XSLT-0.16.tar.gz">v. 0.16</a></font></h3>
+
+   <p>Note that bugs can now be reported at our <a href="index.html#bug">website</a>.
+
+   <p>
+   <li>support for xsl:for-each
+   <li>support for ':' and '-' characters in element and attribute names
+   <li>support for xsl:copy
+   <li>support for xsl:copy-of
 
   <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.15" href="dist/XML-XSLT-0.15.tar.gz">v. 0.15</a></font></h3>
 

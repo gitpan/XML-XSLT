@@ -2,8 +2,12 @@
 
 Copyright (c) 1999 Geert Josten & Egon Willighagen.
 All rights reserved.
+
 This program is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself. 
+
+Information can be found at: http://www.sci.kun.nl/sigma/Persoonlijk/egonw/xslt/
+The module can be found at: http://www.perl.com/CPAN-local/modules/by-authors/id/J/JO/JOSTEN/
 
 This is a Perl module to parse XSL Transformational sheets. For a description of 
 the XSLT, see http://www.w3.org/ . It uses XML::Parser and XML::DOM.
@@ -14,12 +18,17 @@ It requires at least version 5.004 of perl and can be found on CPAN.
 XML::DOM is a Perl module that allows XML::Parser to build an Object Oriented datastructure
 with a DOM Level 1 compliant interface.
 
+LWP::UserAgent is a Perl module that enables the user to easily request or post documents or
+messages over the WWW.
+
 This is an alpha version and the module is not conform the XSLT woking draft at
 this moment. We work very hard to make it conform. New releases will be announced
-on the perl-xml mailing list. [You can subscribe to
-this list by sending a message to subscribe-perl-xml@lyris.activestate.com.]
+on the perl-xml mailing list [You can subscribe to this list by sending a message
+to subscribe-perl-xml@lyris.activestate.com] and to the XML::XSLT mailing list
+[subscribe by sending a message to xmlxslt-subscribe@listbot.com].
 
 For bug reports or suggestions send email to (gjosten|egonw)@sci.kun.nl.
+
 
 To configure this module, cd to the directory that contains this README file
 and type the following.
@@ -38,5 +47,4 @@ install by typing (as superuser):
 Egon Willighagen
 egonw@sci.kun.nl
 
-PS: take a look at the homepage (included as index.txt and index.html) to see
-an overview on the supported xsl commands
+
