@@ -34,7 +34,7 @@ BEGIN {
   die "need at least XML::DOM version $needVersion (current=$domVersion)"
     unless $domVersion >= $needVersion;
 
-  $VERSION = '0.23';
+  $VERSION = '0.24';
 
   @ISA         = qw( Exporter );
   @EXPORT_OK   = qw( &new &transform_document &output_string
@@ -380,23 +380,26 @@ sub open_xsl {
           if ($output) {
             # extraction and processing of the attributes
             my $attribs = $output->getAttributes;
-            $parser->{media_type} = $attribs->getNamedItem('media-type')->getNodeValue;
-            $parser->{method} = $attribs->getNamedItem('method')->getNodeValue;
+            my $media_type_node = $attribs->getNamedItem('media-type');
+            $parser->{media_type} = $media_type_node->getNodeValue if $media_type_node;
+            my $method_node = $attribs->getNamedItem('method');
+            $parser->{method} = $method_node->getNodeValue if $method_node;
 
             if ($parser->{method} eq 'xml') {
+              my $omit_xml_declaration_node = $attribs->getNamedItem('omit_xml_declaration');
+              $parser->{omit_xml_declaration} = $omit_xml_declaration_node ? $omit_xml_declaration_node->getNodeValue : '';
 
-              my $omit_xml_declaration = $attribs->getNamedItem('omit-xml-declaration')->getNodeValue;
-
-              if (($omit_xml_declaration ne 'yes') && ($omit_xml_declaration ne 'no')) {
+              if (($parser->{omit_xml_declaration} ne 'yes') && ($parser->{omit_xml_declaration} ne 'no')) {
                 print " "x$parser->{indent},"wrong value for attribute \"omit-xml-declaration\" in <$parser->{xsl_ns}output>, should be \"yes\" or \"no\"\n" if ($parser->{debug});
                 warn "Wrong value for attribute \"omit-xml-declaration\" in $parser->{xsl_ns}output, should be \"yes\" or \"no\"\n" if $parser->{warnings};
-              } else {
-                $parser->{omit_xml_declaration} = $omit_xml_declaration;
+                delete $parser->{omit_xml_declaration};
               }
 
               if (! $parser->{omit_xml_declaration}) {
-                $parser->{output_version} = $attribs->getNamedItem('version')->getNodeValue;
-                $parser->{output_encoding} = $attribs->getNamedItem('encoding')->getNodeValue;
+                my $output_version_node = $attribs->getNamedItem('output_version');
+                $parser->{output_version} = $output_version_node->getNodeValue if $output_version_node;
+                my $output_encoding_node = $attribs->getNamedItem('output_encoding');
+                $parser->{output_encoding} = $output_encoding_node->getNodeValue if $output_encoding_node;
 
                 if ((! $parser->{output_version}) || (! $parser->{output_encoding})) {
                   print " "x$parser->{indent},"expected attributes \"version\" and \"encoding\" in <$parser->{xsl_ns}output>\n" if ($parser->{debug});
@@ -404,8 +407,10 @@ sub open_xsl {
                 }
               }
             }
-            $parser->{doctype_public} = ($attribs->getNamedItem('doctype-public')->getNodeValue||'');
-            $parser->{doctype_system} = ($attribs->getNamedItem('doctype-system')->getNodeValue||'');
+            my $doctype_public_node = $attribs->getNamedItem('doctype_public');
+            $parser->{doctype_public} = $doctype_public_node ? $doctype_public_node->getNodeValue : '';
+            my $doctype_system_node = $attribs->getNamedItem('doctype_system');
+            $parser->{doctype_system} = $doctype_system_node ? $doctype_system_node->getNodeValue : '';
           }
         }  
 
@@ -1135,11 +1140,11 @@ sub _value_of {
     print " "x$parser->{indent},"stripping node to text:$/" if $parser->{debug};
 
     $parser->{indent} += $parser->{indent_incr};
-      my $text = "";
+      my $text = undef;
       $text = $parser->__string__ ($$xml_node[0]) if @$xml_node;
     $parser->{indent} -= $parser->{indent_incr};
 
-    if ($text) {
+    if (defined($text)) {
       $parser->_add_node ($parser->{xml}->createTextNode($text), $current_result_node);
     } else {
       print " "x$parser->{indent},"nothing left..$/" if $parser->{debug};

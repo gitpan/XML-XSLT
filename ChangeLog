@@ -13,3 +13,13 @@
 	* XSLT.pm: Removed attempt to call dispose on DOMparser as this
 	doesn't actually have a dispose method.  Incremented version
 	number to 0.23.
+
+2000-07-11  Bron Gondwana  <perlcode@brong.net>
+
+        * XSLT.pm: fixed another bug in _value_of that tested for truth
+        rather than defined-ness of a value.  It now deals correctly
+	with zeros in yet another case!
+
+	* XSLT.pm: Changed all the calls to getNodeValue to check that
+	the output node actually has the specified attribute before
+	attempting the sub method call.  Incremented version to 0.24.

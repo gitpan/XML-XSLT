@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="iso-8859-1"?>
-<!-- $Id: REC-xslt-19991116.xml,v 1.1.1.1 2000/06/01 02:22:54 hexmode Exp $ -->
+<!-- $Id: REC-xslt-19991116.xml,v 1.3 2000/07/10 13:35:34 brong Exp $ -->
 <!DOCTYPE spec PUBLIC "-//W3C//DTD Specification V2.0//EN"
                       "/XML/1998/06/xmlspec-v20.dtd" [
 <!ENTITY XML "http://www.w3.org/TR/REC-xml">
