@@ -6,6 +6,7 @@ use ExtUtils::MakeMaker;
 
 push(@extras,
      ABSTRACT_FROM => 'XSLT.pm',
+     ABSTRACT => 'Conversion of XML files with XSLT stylesheets.', 
      AUTHOR        => 'Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)')
     if ($ExtUtils::MakeMaker::Version >= 5.4301);
 

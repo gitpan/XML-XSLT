@@ -8,12 +8,23 @@
 ################################################################################
 
 ######################################################################
-package XML::XSLTParser;
+package XML::XSLT;
 ######################################################################
 
 use strict;
-use XML::DOM;
+use vars qw ( $VERSION @ISA @EXPORT
+              $ELEMENT_NODE $ATTRIBUTE_NODE $TEXT_NODE
+	      $CDATA_SECTION_NODE $ENTITY_REFERENCE_NODE
+              $ENTITY_NODE $PROCESSING_INSTRUCTION_NODE
+	      $COMMENT_NODE $DOCUMENT_NODE $DOCUMENT_TYPE_NODE
+	      $DOCUMENT_FRAGMENT_NODE $NOTATION_NODE
+            );
+	      #$UNKNOWN_NODE
+              #$ELEMENT_DECL_NODE $ATT_DEF_NODE
+	      #$XML_DECL_NODE $ATTLIST_DECL_NODE
+
 use LWP::UserAgent;
+use XML::DOM;
 
 BEGIN {
   require XML::DOM;
@@ -23,443 +34,702 @@ BEGIN {
   die "need at least XML::DOM version $needVersion (current=$domVersion)"
     unless $domVersion >= $needVersion;
 
-  use Exporter ();
-  use vars qw( @ISA @EXPORT);
+  $VERSION = '0.21';
 
   @ISA         = qw( Exporter );
-  @EXPORT      = qw( &new &openproject &process_project &print_result );
+  @EXPORT      = qw( &new &transform_document &result_string
+                     &result_tree &print_result &dispose);
 
-  use vars qw ( $_indent $_indent_incr $_xsl_dir );
-  $_indent = 0;
-  $_indent_incr = 1;
-  $_xsl_dir = "";
+  # pretty print HTML tags (<BR /> etc...)
+  XML::DOM::setTagCompression (\&__my_tag_compression__);
+
+  ### added for efficiency reasons
+  $ELEMENT_NODE 	       = ELEMENT_NODE;
+  $ATTRIBUTE_NODE	       = ATTRIBUTE_NODE;
+  $TEXT_NODE		       = TEXT_NODE;
+  $CDATA_SECTION_NODE	       = CDATA_SECTION_NODE;
+  $ENTITY_REFERENCE_NODE       = ENTITY_REFERENCE_NODE;
+  $ENTITY_NODE  	       = ENTITY_NODE;
+  $PROCESSING_INSTRUCTION_NODE = PROCESSING_INSTRUCTION_NODE;
+  $COMMENT_NODE 	       = COMMENT_NODE;
+  $DOCUMENT_NODE	       = DOCUMENT_NODE;
+  $DOCUMENT_TYPE_NODE	       = DOCUMENT_TYPE_NODE;
+  $DOCUMENT_FRAGMENT_NODE      = DOCUMENT_FRAGMENT_NODE;
+  $NOTATION_NODE	       = NOTATION_NODE;
+  ### these node ID's are not part of the Reccomendation
+  #$UNKNOWN_NODE		= UNKNOWN_NODE;
+  #$ELEMENT_DECL_NODE  	 	= ELEMENT_DECL_NODE;
+  #$ATT_DEF_NODE		= ATT_DEF_NODE;
+  #$XML_DECL_NODE		= XML_DECL_NODE;
+  #$ATTLIST_DECL_NODE  	 	= ATTLIST_DECL_NODE;
 }
 
+    # private auxiliary function #
+    sub __my_tag_compression__ {
+       my ($tag, $elem) = @_;
+
+       # Print empty br, hr and img tags like this: <br />
+       # also when preceded by a namespace: ([\w\.]+\:){0,1}
+       return 2 if $tag =~ /^([\w\.\-]+\:){0,1}(br|p|hr|img|meta|base|link)$/i;
+
+       # Print other empty tags like this: <empty></empty>
+       return 1;
+    }
+
+
+######################################################################
+# PUBLIC DEFINITIONS
 
 
 sub new {
-  my ($class) = @_;
+  my ($class, $xsl, $xsl_flag, %args) = @_;
 
-  return bless {}, $class;  
+  $args{DOMparser_args} ||= {'KeepCDATA' => 1}; # Default #
+  $args{debug} ||= "";         # False if undef #
+  $args{indent} ||= 0;         # Default to 0   #
+  $args{indent_incr} ||= 1;    # Default to 1   #
+
+  if (!$xsl) {
+    warn "No stylesheet was passed to new(), no parser object is created!";
+    return undef;
+  }
+
+  my $parser = bless { DOMparser => XML::DOM::Parser->new (),
+                       DOMparser_args => $args{DOMparser_args},
+                       xml => undef, xml_flag => undef, xml_dir => undef,
+	               xsl => undef, xsl_flag => undef, xsl_dir => undef,
+	               result => undef,
+		       stylesheet => undef, templates => undef,
+		       template_matches => undef, template_names => undef,
+		       xsl_ns => "", xsl_version => undef,
+		       namespaces => {()},
+	               variables => \%args,
+		       debug => $args{debug},
+		       warnings => ($args{warnings} && ! $args{debug}),
+	               indent => $args{indent}, indent_incr => $args{indent_incr}
+		     }, $class;
+
+  $parser->open_xsl ($xsl, $xsl_flag, %args);
+
+  return $parser;
 }
 
-sub openproject {
-  my ($parser) = shift;
-  
-  print "This function is depricated, please use open_project. Thank you...$/";
-  
-  $parser->open_project(@_);
+sub open_xml {
+  my ($parser, $xml, $xmlflag, %args) = @_;
+
+  # clean up a little
+  if ($parser->{xml_flag} && $parser->{xml_flag} !~ /^DOM/i) {  
+    print " "x$parser->{indent},"disposing old xsl...$/" if $parser->{debug};
+    $parser->{xml}->dispose ()     if (defined $parser->{xml});
+  }
+  if (defined $parser->{result}) {
+    print " "x$parser->{indent},"flushing result...$/" if $parser->{debug};
+    $parser->{result}->dispose ();
+  }
+
+  print " "x$parser->{indent},"opening xml...$/" if $parser->{debug};
+
+  # open new document
+  ($parser->{xml}, $parser->{xml_dir})
+    = $parser->_open_document ($xml, $xmlflag, ".", %args);
+  $parser->{xml_flag} = $xmlflag;
+
+  $parser->{result} = $parser->{xml}->createDocumentFragment;
 }
+
+sub open_xsl {
+  my ($parser, $xsl, $xslflag, %args) = @_;
+  $xslflag ||= "FILE";
+
+  # clean up a little
+  if ($parser->{xsl_flag} && $parser->{xsl_flag} !~ /^DOM/i) {
+    print " "x$parser->{indent},"disposing old xsl...$/" if $parser->{debug};
+    $parser->{xsl}->dispose ()     if (defined $parser->{xsl});
+  }
+
+  print " "x$parser->{indent},"opening xsl...$/" if $parser->{debug};
+
+  # open new document
+  ($parser->{xsl}, $parser->{xml_dir})
+    = $parser->_open_document ($xsl, $xslflag, ".", %args);
+  $parser->{xsl_flag} = $xslflag;
+
+  $parser->__preprocess_stylesheet;
+}
+
+    # private auxiliary function #
+    sub __preprocess_stylesheet {
+      my $parser = $_[0];
+
+      print " "x$parser->{indent},"preprocessing stylesheet...$/" if $parser->{debug};
+
+      ($parser->{stylesheet}, $parser->{xsl_ns})
+        = $parser->__get_stylesheet ($parser->{xsl});
+
+      ($parser->{xsl_version})
+        = $parser->__extract_namespaces ($parser->{stylesheet}, $parser->{xsl_ns});
+      $parser->__expand_xsl_includes ($parser->{xsl}, $parser->{xsl_ns}, $parser->{xsl_dir});
+      $parser->__extract_top_level_variables;
+
+      $parser->__add_default_templates;
+      $parser->__cache_templates; # speed optim #
+    }
+
+        # private auxiliary function #
+	sub __get_stylesheet {
+	  my ($parser, $xsl) = @_;
+	  my $stylesheet = "";
+          my $xsl_ns = "";
+
+	  foreach my $child ($xsl->getElementsByTagName ('*', 0)) {
+	    if ($child->getTagName =~ /^(([\w\.\-]+)\:){0,1}(stylesheet|transform)$/i) {
+              $stylesheet = $child;
+	      $xsl_ns = ($2 || "");
+	      last;
+	    }
+          }
+
+	  if (! $stylesheet) {
+            # stylesheet is actually one compleet template! #
+	    # put it in a template-element #
+	    
+            $stylesheet = $xsl->createElement ("$xsl_ns:stylesheet");
+	    my $template = $xsl->createElement ("$xsl_ns:template");
+	    $template->setAttribute ('match', "/");
+
+            my $template_content = $xsl->getElementsByTagName ('*', 0)->item (0);
+	    $xsl->replaceChild ($stylesheet, $template_content);
+            $stylesheet->appendChild ($template);
+	    $template->appendChild ($template_content);
+	  }
+	  
+	  return ($stylesheet, "$xsl_ns:");
+	}
+
+	# private auxiliary function #
+	sub __extract_namespaces {
+	  my ($parser, $stylesheet, $xsl_ns) = @_;
+	  my $xsl_version = "";
+
+	  foreach my $attribute ($stylesheet->getAttributes->getValues) {
+	    my $name = $attribute->getName;
+	    my $value = $attribute->getValue;
+            if ($value) {
+              if ($name eq "version") {
+	        $xsl_version = $value;
+	      } elsif ($name =~ /^xmlns(\:([\w\.\-]+)){0,1}/i) {
+	        my $namespace = ("$2:" || "");
+	        if (($namespace eq $xsl_ns)
+	        && ($value !~ /^http\:\/\/www\.w3\.org\/1999\/XSL\/Transform/i)) {
+	          warn "XML::XSLT implements the specs of http://www.w3.org/1999/XSL/Transform. URL $value might be depricated.$/"
+		    if $parser->{warnings};
+	        }
+	        $parser->{namespaces} = {%{$parser->{namespaces}}, $namespace => $value};
+	      }
+            } else {
+              print " "x$parser->{indent},"attribute $name carries no value$/" if $parser->{debug};
+            }
+	  }
+	  
+	  if (! exists ${$parser->{namespaces}}{""}) {
+	    $parser->{namespaces} = {%{$parser->{namespaces}}, "" => 'http://www.w3.org/TR/xhtml1/strict'};
+	  }
+	}
+
+	# private auxiliary function #
+	sub __expand_xsl_includes {
+	  my ($parser, $xsl, $xsl_ns, $xsl_dir) = @_;
+
+	  foreach my $include_node ($xsl->getElementsByTagName("{$xsl_ns}include")) {
+	    my $include_file = $include_node->getAttribute('href');
+
+	    if ($include_file) {
+              my ($include_doc, $dir);
+	      eval {
+	        ($include_doc, $dir) = $parser->_open_by_filename ($include_file, $xsl_dir);
+	      };
+	      
+	      if ($@) {
+	        chomp ($@);
+                print " "x$parser->{indent},"inclusion of $include_file failed! ($@)$/" if $parser->{debug};
+                warn "inclusion of $include_file failed! ($@)$/" if $parser->{warnings};
+	      } else {
+                my ($stylesheet, $ns) = $parser->__get_stylesheet ($include_doc);
+	        my $version = $parser->__extract_namespaces ($stylesheet, $ns);
+		$parser->__expand_xsl_includes ($include_doc, $ns, $dir);
+
+	        foreach my $child ($stylesheet->getChildNodes) {
+		  $include_node->appendChild($child);
+	        }
+	      }
+
+	    } else {
+              print " "x$parser->{indent},"$parser->{xsl_ns}include tag carries no selection!$/" if $parser->{debug};
+              warn "$parser->{xsl_ns}include tag carries no selection!$/" if $parser->{warnings};
+	    }
+	  }
+	}
+
+	# private auxiliary function #
+	sub __extract_top_level_variables {
+	  my $parser = $_[0];
+
+	  foreach my $child ($parser->{stylesheet}->getElementsByTagName ('*',0)) {
+	    if ($child =~ /^$parser->{xsl_ns}(variable|param)/i) {
+              my $vartag = $1;
+
+              my $name = $child->getAttribute("name");
+              if ($name) {
+                my $value = $child->getAttribute("select");
+                if (!$value) {
+                  my $result = $parser->{xml}->createDocumentFragment;
+                  $parser->_evaluate_template ($child, $parser->{xml}, '', $result);
+                  $value = $parser->_string ($result);
+                  $result->dispose();
+                }
+                %{$parser->{variables}} = (%{$parser->{variables}}, $name => $value);
+              } else {
+                print " "x$parser->{indent},"$parser->{xsl_ns}$vartag tag carries no name!$/" if $parser->{debug};
+                warn "$parser->{xsl_ns}include tag carries no name!$/" if $parser->{warnings};
+              }
+
+	    }
+	  }
+	}
+
+	# private auxiliary function #
+	sub __add_default_templates {
+	  my $parser = $_[0];
+
+	  # create template for '*' and '/' #
+	  my $elem_template = $parser->{xsl}->createElement ("$parser->{xsl_ns}template");
+	  $elem_template->setAttribute('match','*|/');
+	  # <xsl:apply-templates />
+	  $elem_template->appendChild ($parser->{xsl}->createElement ("$parser->{xsl_ns}apply-templates"));
+
+	  # create template for 'text()' and '@*' #
+	  my $attr_template = $parser->{xsl}->createElement ("$parser->{xsl_ns}template");
+	  $attr_template->setAttribute('match','text()|@*');
+	  # <xsl:value-of select="." />
+	  $attr_template->appendChild ($parser->{xsl}->createElement ("$parser->{xsl_ns}value-of"));
+          $attr_template->getFirstChild->setAttribute('select','.');
+
+	  # create template for 'processing-instruction()' and 'comment()' #
+	  my $pi_template = $parser->{xsl}->createElement ("$parser->{xsl_ns}template");
+	  $pi_template->setAttribute('match','processing-instruction()|comment()');
+          # do nothing :-)
+
+	  # add them to the stylesheet #
+	  my $first_child = $parser->{stylesheet}->getFirstChild ();
+	  $parser->{stylesheet}->insertBefore ($pi_template, $first_child);
+	  $parser->{stylesheet}->insertBefore ($attr_template, $first_child);
+	  $parser->{stylesheet}->insertBefore ($elem_template, $first_child);
+	}
+
+	# private auxiliary function #
+	sub __cache_templates {
+	  my $parser = $_[0];
+
+	  $parser->{templates} = [$parser->{xsl}->getElementsByTagName ("$parser->{xsl_ns}template")];
+
+	  # pre-cache template names and matches #
+	  # reversing the template order is much more efficient #
+	  foreach my $template (reverse @{$parser->{templates}}) {
+	    if ($template->getParentNode->getTagName =~
+	        /^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/i) {
+	      my $match = $template->getAttribute ('match');
+	      my $name = $template->getAttribute ('name');
+              if ($match && $name) {
+                print " "x$parser->{indent},"defining a template with both a \"name\" and a \"match\" attribute is not allowed!$/" if $parser->{debug};
+                warn "defining a template with both a \"name\" and a \"match\" attribute is not allowed!$/" if $parser->{warnings};
+	        push (@{$parser->{template_matches}}, "");
+	        push (@{$parser->{template_names}}, "");
+              } elsif ($match) {
+	        push (@{$parser->{template_matches}}, $match);
+	        push (@{$parser->{template_names}}, "");
+              } elsif ($name) {
+	        push (@{$parser->{template_matches}}, "");
+  	        push (@{$parser->{template_names}}, $name);
+              } else {
+	        push (@{$parser->{template_matches}}, "");
+	        push (@{$parser->{template_names}}, "");
+              }
+	    }
+	  }
+	}
+
 
 sub open_project {
-  my ($parser, $xml, $xsl, $xmlflag, $xslflag) = @_;
-  $xmlflag = "FILE" unless defined $xmlflag;
-  $xslflag = "FILE" unless defined $xslflag;
+  my ($parser, $xml, $xsl, $xmlflag, $xslflag, %args) = @_;
 
-  my $xmlencoding = "";
-  my $xslencoding = "";
+  print " "x$parser->{indent},"opening project:$/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
 
-  $XSLT::DOMparser = new XML::DOM::Parser;
-  XML::DOM::setTagCompression (\&__my_tag_compression__);
+    $parser->open_xml ($xml, $xmlflag, %args);
+    $parser->open_xsl ($xsl, $xslflag, %args);
 
-  # parsing of XML
-
-  if ($xmlflag =~ /^F/i) {
-    if ((ref \$xml) =~ /SCALAR/i) {
-      if (open (FILE, $xml)) {
-        my ($line) = <FILE>;
-        $xmlencoding = $1 if ($line =~ /encoding="(.*?)"/i);
-      }
-      if ($xmlencoding) {
-        $XSLT::xml = $XSLT::DOMparser->parsefile ($xml, 'ProtocolEncoding' => $xmlencoding);
-      } else {
-        $XSLT::xml = $XSLT::DOMparser->parsefile ($xml);
-      }
-    } else {
-      my @file = <$xml>;
-      $xmlencoding = $1 if ($file[1] =~ /encoding="(.*?)"/i);
-      $xml = join ("", @file);
-      if ($xmlencoding) {
-        $XSLT::xml = $XSLT::DOMparser->parse ($xml, 'ProtocolEncoding' => $xmlencoding);
-      } else {
-        $XSLT::xml = $XSLT::DOMparser->parse ($xml);
-      }
-    }
-  } elsif ($xmlflag =~ /^D/i) {
-    if ((ref $xml) =~ /Document$/i) {
-      $XSLT::xml = $xml;
-    } else {
-      die ("Error: You have to pass a Document node to open_project when passing a DOM tree$/");
-    }
-  } else {
-    if ((ref $xml) =~ /SCALAR/i) {
-      $xmlencoding = $1 if ($$xml =~ /<\?xml.*?encoding="(.*?)".*?\?>/i);
-      if ($xmlencoding) {
-        $XSLT::xml = $XSLT::DOMparser->parse ($$xml, 'ProtocolEncoding' => $xmlencoding);
-      } else {
-        $XSLT::xml = $XSLT::DOMparser->parse ($$xml);
-      }
-    } else {
-      $xmlencoding = $1 if ($xml =~ /<\?xml.*?encoding="(.*?)".*?\?>/i);
-      if ($xmlencoding) {
-        $XSLT::xml = $XSLT::DOMparser->parse ($xml, 'ProtocolEncoding' => $xmlencoding);
-      } else {
-        $XSLT::xml = $XSLT::DOMparser->parse ($xml);
-      }
-    }
-  }
-
-  # parsing of XSL
-
-  if ($xslflag =~ /^F/i) {
-    $_xsl_dir = $xsl;
-    $_xsl_dir =~ s/\/[\w\.]+$//;
-    if ((ref \$xsl) =~ /SCALAR/i) {
-      if (open (FILE, $xsl)) {
-        my ($line) = <FILE>;
-        $xslencoding = $1 if ($line =~ /encoding="(.*?)"/i);
-      }
-      if ($xslencoding) {
-        $XSLT::xsl = $XSLT::DOMparser->parsefile ($xsl, 'ProtocolEncoding' => $xslencoding, 'KeepCDATA' => 1);
-      } else {
-        $XSLT::xsl = $XSLT::DOMparser->parsefile ($xsl, 'KeepCDATA' => 1);
-      }
-    } else {
-      my @file = <$xsl>;
-      $xslencoding = $1 if ($file[1] =~ /encoding="(.*?)"/i);
-      $xsl = join ("", @file);
-      if ($xslencoding) {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($xsl, 'ProtocolEncoding' => $xslencoding);
-      } else {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($xsl);
-      }
-    }
-  } elsif ($xslflag =~ /^D/i) {
-    $_xsl_dir = ".";
-    if ((ref $xsl) =~ /Document$/i) {
-      $XSLT::xsl = $xsl;
-    } else {
-      die ("Error: You have to pass a Document node to open_project when passing a DOM tree$/");
-    }
-  } else {
-    $_xsl_dir = ".";
-    if ((ref $xsl) =~ /SCALAR/i) {
-      $xslencoding = $1 if ($$xsl =~ /<\?xml.*?encoding="(.*?)".*?\?>/i);
-      if ($xslencoding) {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($$xsl, 'ProtocolEncoding' => $xslencoding);
-      } else {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($$xsl);
-      }
-    } else {
-      $xslencoding = $1 if ($xsl =~ /<\?xml.*?encoding="(.*?)".*?\?>/i);
-      if ($xslencoding) {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($xsl, 'ProtocolEncoding' => $xslencoding);
-      } else {
-        $XSLT::xsl = $XSLT::DOMparser->parse ($xsl);
-      }
-    }
-  }
-  $XSLT::result = $XSLT::xml->createDocumentFragment;
-
-  $parser->__expand_xsl_includes__($XSLT::xsl);
-  $parser->__add_default_templates__($XSLT::xsl);
+    print " "x$parser->{indent},"done...$/" if $parser->{debug};
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
-  sub __my_tag_compression__ {
-     my ($tag, $elem) = @_;
+sub transform_document {
+  my ($parser, $xml, $xmlflag, %topvariables) = @_;
 
-     # Print empty br, hr and img tags like this: <br />
-     return 2 if $tag =~ /^(br|p|hr|img|meta|base|link)$/i;
+  print " "x$parser->{indent},"opening project:$/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
 
-     # Print other empty tags like this: <empty></empty>
-     return 1;
-  }
+    $parser->open_xml ($xml, $xmlflag, %topvariables);
 
+    print " "x$parser->{indent},"done...$/" if $parser->{debug};
+  $parser->{indent} -= $parser->{indent_incr};
+  print " "x$parser->{indent},"processing project:$/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
 
-sub process_project {
-  my ($parser) = @_;
-  my $root_template = $parser->_find_template ("match", '/');
+    my $root_template = $parser->_match_template ("match", '/', 1, '');
 
-  if ($root_template) {
+    %topvariables = (%{$parser->{variables}}, %topvariables);
 
     $parser->_evaluate_template (
-        $root_template,		# starting template, the root template
-        $XSLT::xml,		# current XML node, the root
-        '',			# current XML selection path, the root
-        $XSLT::result,		# current result tree node, the root
+        $root_template,		# starting template: the root template
+        $parser->{xml},		# current XML node: the root
+        '',			# current XML selection path: the root
+        $parser->{result},	# current result tree node: the root
+        {()},                   # current known variables: none
+        \%topvariables          # previously known variables: top level variables
     );
 
-  }
+  print " "x$parser->{indent},"done!$/" if $parser->{debug};
+  $parser->{indent} -= $parser->{indent_incr};
+}
+
+sub process_project {
+  my ($parser, %topvariables) = @_;
+
+  print " "x$parser->{indent},"processing project:$/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
+
+    my $root_template = $parser->_match_template ("match", '/', 1, '');
+
+    %topvariables = (%{$parser->{variables}}, %topvariables);
+
+    $parser->_evaluate_template (
+        $root_template,		# starting template: the root template
+        $parser->{xml},		# current XML node: the root
+        '',			# current XML selection path: the root
+        $parser->{result},	# current result tree node: the root
+        {()},                   # current known variables: none
+        \%topvariables          # previously known variables: top level variables
+    );
+
+  print " "x$parser->{indent},"done!$/" if $parser->{debug};
+  $parser->{indent} -= $parser->{indent_incr};
+}
+
+sub result_string {
+  my $parser = $_[0];
+
+  my $string = $parser->{result}->toString;
+  $string =~ s/\n\s*\n(\s*)\n/\n$1\n/g; # Substitute multiple empty lines by one
+#  $string =~ s/\/\>/ \/\>/g;            # Insert a space before every />
+
+  return $string;
+}
+
+sub result_tree {
+  return $_[0]->{result};
+}
+
+sub result {
+  return $_[0]->result_string;
 }
 
 sub print_result {
   my ($parser, $file) = @_;
 
-#  $XSLT::result->printToFileHandle (\*STDOUT);
+#  $parser->{result}->printToFileHandle (\*STDOUT);
+#  or $parser->{result}->print (\*STDOUT); ???
 #  exit;
 
-  $XSLT::outputstring = $XSLT::result->toString;
-  $XSLT::outputstring =~ s/\n\s*\n(\s*)\n/\n$1\n/g; # Substitute multiple empty lines by one
-#  $XSLT::outputstring =~ s/\/\>/ \/\>/g;            # Insert a space before all />
-
   if (defined $file) {
-    if ((ref \$file) =~ /GLOB/i) {
-      print $file $XSLT::outputstring,$/;
+    if (ref (\$file) !~ /^SCALAR/i) {
+      print $file $parser->result_string,$/;
     } else {
       if (open (FILE, ">$file")) {
-        print FILE $XSLT::outputstring,$/;
+        print FILE $parser->result_string,$/;
         if (! close (FILE)) {
-          print "Error writing $file: $!. Nothing written...$/" if !$XSLT::warnings;
-          warn "Error writing $file: $!. Nothing written...$/" if $XSLT::warnings;
+          die ("Error writing $file: $!. Nothing written...$/");
         }
       } else {
-        print "Error writing $file: $!. Nothing written...$/" if !$XSLT::warnings;
-        warn "Error writing $file: $!. Nothing written...$/" if $XSLT::warnings;
+        die ("Error opening $file: $!. Nothing done...$/");
       }
     }
   } else {
-    print $XSLT::outputstring,$/;
+    print $parser->result_string,$/;
   }
-  #=item printToFile (filename)
-  #
-  #Prints the entire subtree to the file with the specified filename.
-  #
-  #Croaks: if the file could not be opened for writing.
-  #
-  #=item printToFileHandle (handle)
-  #
-  #Prints the entire subtree to the file handle.
-  #E.g. to print to STDOUT:
-  #
-  # $node->printToFileHandle (\*STDOUT);
-  #
-  #=item print (obj)
-  #
-  #Prints the entire subtree using the object's print method. E.g to print to a
-  #FileHandle object:
-  #
-  # $f = new FileHandle ("file.out", "w");
-  # $node->print ($f);
 }
 
-######################################################################
+sub dispose {
+  #my $parser = $_[0];
 
-  sub __add_default_templates__ {
-    # Add the default templates for match="/" and match="*" #
-    my $parser = shift;
-    my $root_node = shift;
+  $_[0]->{DOMparser}->dispose () if (defined $_[0]->{DOMparser});
+  $_[0]->{result}->dispose ()    if (defined $_[0]->{result});
 
-    my $stylesheet = $root_node->getElementsByTagName('xsl:stylesheet',0)->item(0);
-    my $first_template = $stylesheet->getElementsByTagName('xsl:template',0)->item(0);
-
-    my $root_template = $root_node->createElement('xsl:template');
-    $root_template->setAttribute('match','/');
-    $root_template->appendChild ($root_node->createElement('xsl:apply-templates'));
-    $stylesheet->insertBefore($root_template,$first_template);
-
-    my $any_element_template = $root_node->createElement('xsl:template');
-    $any_element_template->setAttribute('match','*');
-    $any_element_template->appendChild ($root_node->createElement('xsl:apply-templates'));
-    $stylesheet->insertBefore($any_element_template,$first_template);
+  # only dispose xml and xsl when they were not passed as DOM
+  if ($_[0]->{xml_flag} && $_[0]->{xml_flag} !~ /^DOM/i) {  
+    $_[0]->{xml}->dispose ()     if (defined $_[0]->{xml});
+  }
+  if ($_[0]->{xsl_flag} && $_[0]->{xsl_flag} !~ /^DOM/i) {  
+    $_[0]->{xsl}->dispose ()     if (defined $_[0]->{xsl});
   }
 
-  sub __expand_xsl_includes__ {
-    # replace the <xsl:include> tags by the content of the files #
-    my $parser = shift;
-    my $root_node = shift;
+  $_[0] = undef;
+}
 
-    my $include_nodes = $root_node->getElementsByTagName('xsl:include');
 
-    foreach my $include_node (@$include_nodes) {
-      # get include file name and look if exists
-      my $include_file = $include_node->getAttribute('href');
-      if ($include_file) {
-        if ($include_file =~ /^http:/i) {
-        
-          # Use UserAgent to request a GET HTTP
-          my $useragent = new LWP::UserAgent;
-          my $request = new HTTP::Request GET => $include_file;
-          my $result = $useragent->request($request);
+######################################################################
+# PRIVATE DEFINITIONS
 
-          # Check the outcome of the response
-          if ($result->is_success) {
-            print " "x$_indent,"expanding included URL $include_file$/" if $XSLT::debug;
 
-            # parse file and insert tree into xsl tree
-            my $include_doc = $XSLT::DOMparser->parse ($result->content);
+sub _open_document {
+  my ($parser, $parse_object, $object_type, $dir, %args) = @_;
+  $object_type ||= "FILENAME";
+  %args = (%{$parser->{DOMparser_args}}, (%args || ()));
+  my $doc;
 
-            &__include_stylesheet__ ($include_doc, $XSLT::xsl, $include_node);
+  print " "x$parser->{indent},"opening document of type $object_type...$/" if $parser->{debug};
 
-          } else {
-            print " "x$_indent,"include URL $include_file can not be requested!$/" if $XSLT::debug;
-            warn "include URL $include_file can not be requested!$/" if $XSLT::warnings;
-          }
-        } else {
-          if ($include_file !~ /^\//i) {
-            $include_file = "$_xsl_dir/$include_file";
-          }
+  # A filename or a filehandle/stream could be passed
+  if ($object_type =~ /^FILE/i) {
+    if (ref (\$parse_object) !~ /^SCALAR/i) {
+      # it is not a filename, let XML::Parser take care of it
+      $doc = $parser->{DOMparser}->parse ($parse_object, %args);
+    } else {
+      # it is a filename. http:? file:? relative path?
+      ($doc, $dir) = $parser->_open_by_filename ($parse_object, $dir, %args);
+    }
 
-          if (-f $include_file) {
+  # but a DOM tree could be passed as well    
+  } elsif ($object_type =~ /^DOM/i) {
+    if (ref ($parse_object) =~ /^XML::DOM::Document/i) {
+      $doc = $parse_object;
+    } else {
+      die ("Error: pass a DOM Document node to open_project when passing a DOM tree$/");
+    }
 
-            print " "x$_indent,"expanding included file $include_file$/" if $XSLT::debug;
+  # or a scalar or even a scalar ref!
+  } elsif ($object_type =~ /^STRING/i) {
+    if (ref ($parse_object) =~ /^SCALAR/i) {
+      $doc = $parser->{DOMparser}->parse ($$parse_object, %args);
+    } else {
+      $doc = $parser->{DOMparser}->parse ($parse_object, %args);
+    }
 
-            # parse file and insert tree into xsl tree
-            my $include_doc = $XSLT::DOMparser->parsefile ($include_file);
+  # I don't know, it's not FILE, STRING nor DOM
+  } else {
+    die ("Error: cannot open documents of type \"$object_type\"$/");
+  }
 
-            &__include_stylesheet__ ($include_doc, $XSLT::xsl, $include_node);
+  return ($doc, $dir);
+}
 
-          } else {
-            print " "x$_indent,"include $include_file can not be read!$/" if $XSLT::debug;
-            warn "include $include_file can not be read!$/" if $XSLT::warnings;
-          }
-        }
+  # private auxiliary function #
+  sub _open_by_filename {
+    my ($parser, $filename, $dir, %args) = @_;
+    my $doc;
+
+    # it's a http link!
+    if ($filename =~ /^http:/i) {
+      my $request = HTTP::Request->new (GET => $filename);
+      my $result = LWP::UserAgent->new()->request($request);
+
+      if ($result->is_success) {
+	$doc = $parser->{DOMparser}->parse ($result->content, %args);
       } else {
-        print " "x$_indent,"xsl:include tag carries no selection!$/" if $XSLT::debug;
-        warn "xsl:include tag carries no selection!$/" if $XSLT::warnings;
+	die ("Error: cannot open document from URL \"$filename\"$/");
+      }
+
+      $dir = $filename;
+      $dir =~ s/\/[^\/]+$//i;
+
+    # no? then it must be a file path...
+    } else {
+      $filename =~ s/^file://i;
+
+      if ($filename =~ /^\//i) {
+	$dir = $filename;
+	$dir =~ s/\/[^\/]+$//i;
+      } else {
+	$filename = "$dir/$filename";
+      }
+
+      if (-f $filename) {
+	$doc = $parser->{DOMparser}->parsefile ($filename, %args);
+      } else {
+	die ("Error: cannot open document from path \"$filename\"$/");
       }
     }
+
+    return ($doc, $dir);
   }
 
-  sub __include_stylesheet__ {
-    my $include_doc  = shift;
-    my $root         = shift;
-    my $include_node = shift;
-
-    $include_doc = $include_doc->getElementsByTagName('xsl:stylesheet',0)->item(0);
-    $include_doc->setOwnerDocument ($root);
-    my $include_fragment = $root->createDocumentFragment;
-
-    foreach my $child ($include_doc->getChildNodes) {
-      $include_fragment->appendChild($child);
-    }
-
-    my $include_parent = $include_node->getParentNode;
-    $include_parent->insertBefore($include_fragment, $include_node);
-    $include_parent->removeChild($include_node);
-  }
-
-sub _find_template {
-  my $parser = shift;
-  my $attribute_name = shift;
-  my $current_xml_selection_path = shift;
-  my $mode = shift;
-  $mode = 0 unless defined $mode;
+sub _match_template {
+  my ($parser, $attribute_name, $select_value, $xml_count, $xml_selection_path,
+      $mode) = @_;
+  $mode ||= "";
   
   my $template = "";
+  my @template_matches = ();
+
+  print " "x$parser->{indent},"matching template for \"$select_value\" with count $xml_count and path \"$xml_selection_path\":$/" if $parser->{debug};
   
-  if ($attribute_name =~ "match" || $attribute_name =~ "name") {
+  if ($attribute_name eq "match") {
+    @template_matches = @{$parser->{template_matches}};
+  } elsif ($attribute_name eq "name") {
+    @template_matches = @{$parser->{template_names}};
+  }
 
-    print " "x$_indent,"searching template for \"$current_xml_selection_path\":$/" if $XSLT::debug;
+  # note that the order of @template_matches is the reverse of $parser->{templates}
+  my $count = @template_matches;
+  foreach my $original_match (@template_matches) {
+    # templates with no match or name or with both simultaniuously
+    # have no $template_match value
+    if ($original_match) {
+      my $full_match = $original_match;
 
-    my $stylesheet = $XSLT::xsl->getElementsByTagName('xsl:stylesheet',0)->item(0);
-
-    my $count = 0;
-    foreach my $child ($stylesheet->getElementsByTagName('*',0)) {
-      if ($child->getTagName =~ /^xsl:template$/i) {
-        $count++;
-
-        my $template_attr_value = $child->getAttribute ($attribute_name);
-
-        if (&__template_matches__ ($template_attr_value, $current_xml_selection_path)) {
-          print " "x$_indent,"  found #$count \"$template_attr_value\"$/" if $XSLT::debug;
-          $template = $child;
-        } else {
-          print " "x$_indent,"  #$count \"$template_attr_value\" does not match$/" if $XSLT::debug;
+      # multipe match? (for example: match="*|/")
+      while ($full_match =~ s/^(.+?)\|//i) {
+        my $match = $1;
+        if (&__template_matches__ ($match, $select_value, $xml_count,
+                                   $xml_selection_path)) {
+	  print " "x$parser->{indent},"  found #$count with \"$match\" in \"$original_match\" $/" if $parser->{debug};
+	  $template = ${$parser->{templates}}[$count-1];
+  return $template;
+#	  last;
         }
+      }
 
+      # last match?
+      if (!$template) {
+        if (&__template_matches__ ($full_match, $select_value, $xml_count,
+                                   $xml_selection_path)) {
+          print " "x$parser->{indent},"  found #$count with \"$full_match\" in \"$original_match\"$/" if $parser->{debug};
+          $template = ${$parser->{templates}}[$count-1];
+  return $template;
+#          last;
+        } else {
+          print " "x$parser->{indent},"  #$count \"$original_match\" did not match$/" if $parser->{debug};
+        }
       }
     }
+    $count--;
+  }
 
-    if (! $template) {
-      print "no template found! $/" if $XSLT::debug;
-      warn ("No template matching $current_xml_selection_path found !!$/") if $XSLT::debug;
-    } elsif ($XSLT::debug) {
-      my $template_attr_value = $template->getAttribute ($attribute_name);
-      print " "x$_indent,"  using \"$template_attr_value\"$/";
-    }
-  } else {
-
-    print "XSLT: find! $/" if $XSLT::debug;
-    warn ("No template matching $current_xml_selection_path found !!$/") if $XSLT::debug;
-
+  if (! $template) {
+    print "no template found! $/" if $parser->{debug};
+    warn "No template matching $xml_selection_path found !!$/" if $parser->{warnings};
   }
 
   return $template;
 }
 
+  # auxiliary function #
   sub __template_matches__ {
-    my $template = shift;
-    my $path = shift;
+    my ($template, $select, $count, $path) = @_;
     
-    if ($template ne $path) {
-      if ($path =~ /\/.*(\@\*|\@\w+)$/) {
-        # attribute selection #
-        my $attribute = $1;
-        return ($template eq "\@*" || $template eq $attribute);
-      } elsif ($path =~ /\/(\*|\w+)$/) {
-        # element selection #
-        my $element = $1;
-        return ($template eq "*" || $template eq $element);
-      } else {
-        return "";
-      }
-    } else {
+    my $nocount_path = $path;
+    $nocount_path =~ s/\[.*?\]//ig;
+
+    if (($template eq $select) || ($template eq $path)
+    || ($template eq "$select\[$count\]") || ($template eq "$path\[$count\]")) {
+      # perfect match or path ends with templates match
+#print "perfect match",$/;
       return "True";
+    } elsif ( ($template eq substr ($path, - length ($template)))
+           || ($template eq substr ($nocount_path, - length ($template)))
+           || ("$template\[$count\]" eq substr ($path, - length ($template)))
+           || ("$template\[$count\]" eq substr ($nocount_path, - length ($template)))
+            ) {
+      # template matches tail of path matches perfectly
+#print "perfect tail match",$/;
+      return "True";
+    } elsif ($select =~ /\[\s*(\@.*?)\s*=\s*(.*?)\s*\]$/i) {
+      # match attribute test
+      my $attribute = $1;
+      my $value = $2;
+      return ""; # False, no test evaluation yet #
+    } elsif ($select =~ /\[\s*(.*?)\s*=\s*(.*?)\s*\]$/i) {
+      # match test
+      my $element = $1;
+      my $value = $2;
+      return ""; # False, no test evaluation yet #
+    } elsif ($select =~ /(\@\*|\@[\w\.\-\:]+)$/i) {
+      # match attribute
+      my $attribute = $1;
+#print "attribute match?",$/;
+      return (($template eq '@*') || ($template eq $attribute)
+           || ($template eq "\@*\[$count\]") || ($template eq "$attribute\[$count\]"));
+    } elsif ($select =~ /(\*|[\w\.\-\:]+)$/) {
+      # match element
+      my $element = $1;
+#print "element match?",$/;
+      return (($template eq "*") || ($template eq $element)
+           || ($template eq "*\[$count\]") || ($template eq "$element\[$count\]"));
+    } else {
+      return ""; # False #
     }
   }
 
 sub _evaluate_template {
-  my $parser = shift;
-  my $template = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $template, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
 
-  print " "x$_indent,"evaluating template content with \"$current_xml_selection_path\": $/" if $XSLT::debug;
-  $_indent += $_indent_incr;;
+  print " "x$parser->{indent},"evaluating template content with current path \"$current_xml_selection_path\": $/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
 
-  foreach my $child ($template->getChildNodes) {
-    my $ref = ref $child;
-    print " "x$_indent,"$ref$/" if $XSLT::debug;
-    $_indent += $_indent_incr;
+    $template->normalize();
+    foreach my $child ($template->getChildNodes) {
+      my $ref = ref $child;
 
-      if ($child->getNodeType == ELEMENT_NODE) {
-        $parser->_evaluate_element ($child,
-                                    $current_xml_node,
-                                    $current_xml_selection_path,
-                                    $current_result_node);
-      } elsif ($child->getNodeType == TEXT_NODE) {
-        $parser->_add_node($child, $current_result_node);
-      } elsif ($child->getNodeType == CDATA_SECTION_NODE) {
-        my $text = $XSLT::xml->createTextNode ($child->getNodeValue);
-        $parser->_add_node($text, $current_result_node);
-      } elsif ($child->getNodeType == ENTITY_REFERENCE_NODE) {
-        $parser->_add_node($child, $current_result_node);
-      } elsif ($child->getNodeType == DOCUMENT_TYPE_NODE) {
+      print " "x$parser->{indent},"$ref$/" if $parser->{debug};
+      $parser->{indent} += $parser->{indent_incr};
+        my $node_type = $child->getNodeType;
+        if ($node_type == $ELEMENT_NODE) {
+          $parser->_evaluate_element ($child, $current_xml_node,
+                                      $current_xml_selection_path,
+                                      $current_result_node, $variables, $oldvariables);
+        } elsif ($node_type == $TEXT_NODE) {
+          # strip whitespace here?
+          $parser->_add_node ($child, $current_result_node);
+        } elsif ($node_type == $CDATA_SECTION_NODE) {
+          my $text = $parser->{xml}->createTextNode ($child->getData);
+          $parser->_add_node($text, $current_result_node);
+        } elsif ($node_type == $ENTITY_REFERENCE_NODE) {
+          $parser->_add_node($child, $current_result_node);
+        } elsif ($node_type == $DOCUMENT_TYPE_NODE) {
           # skip #
-      } elsif ($child->getNodeType == COMMENT_NODE) {
+          print " "x$parser->{indent},"Skipping Document Type node...$/" if $parser->{debug};
+        } elsif ($node_type == $COMMENT_NODE) {
           # skip #
-      } else {
-        my $name = $template->getTagName;
-        print " "x$_indent,"Cannot evaluate node $name of type $ref !$/" if $XSLT::debug;
-        warn ("evaluate-template: Dunno what to do with node of type $ref !!! ($name; $current_xml_selection_path)$/") if $XSLT::warnings;
-      }
-    
-    $_indent -= $_indent_incr;
-  }
+          print " "x$parser->{indent},"Skipping Comment node...$/" if $parser->{debug};
+        } else {
+          print " "x$parser->{indent},"Cannot evaluate node of type $ref !$/" if $parser->{debug};
+          warn ("evaluate-template: Dunno what to do with node of type $ref !!! ($current_xml_selection_path)$/") if $parser->{warnings};
+        }
 
-  $_indent -= $_indent_incr;
+      $parser->{indent} -= $parser->{indent_incr};
+    }
+
+    print " "x$parser->{indent},"done!$/" if $parser->{debug};
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _add_node {
-  my $parser = shift;
-  my $node = shift;
-  my $parent = shift;
-  my $deep = (shift || "");
-  my $owner = (shift || $XSLT::xml);
+  my ($parser, $node, $parent, $deep, $owner) = @_;
+  $deep ||= ""; # False #
+  $owner ||= $parser->{xml};
 
-  print " "x$_indent,"adding node (deep)..$/" if $XSLT::debug && $deep;
-  print " "x$_indent,"adding node (non-deep)..$/" if $XSLT::debug && !$deep;
+  print " "x$parser->{indent},"adding node (deep)..$/" if $parser->{debug} && $deep;
+  print " "x$parser->{indent},"adding node (non-deep)..$/" if $parser->{debug} && !$deep;
 
   $node = $node->cloneNode($deep);
   $node->setOwnerDocument($owner);
@@ -467,568 +737,664 @@ sub _add_node {
 }
 
 sub _apply_templates {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = (shift || "");
-  my $current_result_node = shift;
-
-  my $match = $xsl_node->getAttribute ('select');
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
   my $children;
-  if ($match) {
-    print " "x$_indent,"applying templates on children $match of \"$current_xml_selection_path\":$/" if $XSLT::debug;
-    $children = $parser->_get_node_from_path ($match, $XSLT::xml,
-                                              $current_xml_selection_path,
-    					      $current_xml_node,
-                                              "asNodeList");
+  my $newvariables = {()};
+  
+  my $select = $xsl_node->getAttribute ('select');
+  
+  if ($select =~ /\$/) {
+    # replacing occurences of variables:
+    foreach my $varname (keys (%$variables)) {
+      $select =~ s/[^\\]\$$varname/$$variables{$varname}/g;
+    }
+  }
+  
+  if ($select) {
+    print " "x$parser->{indent},"applying templates on children $select of \"$current_xml_selection_path\":$/" if $parser->{debug};
+    $children = $parser->_get_node_set ($select, $parser->{xml},
+                                        $current_xml_selection_path,
+    					$current_xml_node, $variables);
   } else {
-    print " "x$_indent,"applying templates on all children of \"$current_xml_selection_path\":$/" if $XSLT::debug;
+    print " "x$parser->{indent},"applying templates on all children of \"$current_xml_selection_path\":$/" if $parser->{debug};
     my @children = $current_xml_node->getChildNodes;
     $children = \@children;
   }
 
-  $_indent += $_indent_incr;
+  $parser->_process_with_params ($xsl_node, $current_xml_node,
+      				 $current_xml_selection_path,
+                                 $current_result_node, $variables, $oldvariables);
 
-  for (my $i = 0; $i < @$children;$i++) {
-    my $child = $$children[$i];
-    my $ref = ref $child;
-    print " "x$_indent,"$ref$/" if $XSLT::debug;
-    $_indent += $_indent_incr;
+  # process xsl:sort here
 
-      if ($child->getNodeType == DOCUMENT_NODE) {
-        $child = $child->getFirstChild;
-      }
-      my $child_xml_selection_path = $child->getNodeName;
-      $child_xml_selection_path = "$current_xml_selection_path/$child_xml_selection_path";
+  $parser->{indent} += $parser->{indent_incr};
 
-      if ($child->getNodeType == ELEMENT_NODE) {
-          my $template = $parser->_find_template ("match", $child_xml_selection_path);
-
-          if ($template) {
-
-              $parser->_evaluate_template ($template,
-		 	                   $child,
-                                           $child_xml_selection_path,
-                                           $current_result_node);
-          }
-      } elsif ($child->getNodeType == TEXT_NODE) {
-          $parser->_add_node($child, $current_result_node);
-      } elsif ($child->getNodeType == CDATA_SECTION_NODE) {
-          my $text = $XSLT::xml->createTextNode ($child->getNodeValue);
-          $parser->_add_node($text, $current_result_node);
-      } elsif ($child->getNodeType == ENTITY_REFERENCE_NODE) {
-          $parser->_add_node($child, $current_result_node);
-      } elsif ($child->getNodeType == DOCUMENT_TYPE_NODE) {
-          # skip #
-      } elsif ($child->getNodeType == COMMENT_NODE) {
-          # skip #
-      } elsif ($child->getNodeType == PROCESSING_INSTRUCTION_NODE) {
-          # skip #
+    my $count = 1;
+    foreach my $child (@$children) {
+      my $node_type = $child->getNodeType;
+    
+      if ($node_type == $DOCUMENT_TYPE_NODE) {
+        # skip #
+        print " "x$parser->{indent},"Skipping Document Type node...$/" if $parser->{debug};
+      } elsif ($node_type == $DOCUMENT_FRAGMENT_NODE) {
+        # skip #
+        print " "x$parser->{indent},"Skipping Document Fragment node...$/" if $parser->{debug};
+      } elsif ($node_type == $NOTATION_NODE) {
+        # skip #
+        print " "x$parser->{indent},"Skipping Notation node...$/" if $parser->{debug};
       } else {
-          print " "x$_indent,"Cannot apply templates on nodes of type $ref$/" if $XSLT::debug;
-          warn ("apply-templates: Dunno what to do with nodes of type $ref !!! ($child_xml_selection_path)$/") if $XSLT::warnings;
+
+	my $newselect = "";
+        my $newcount = $count;
+        if (!$select) {
+          if ($node_type == $ELEMENT_NODE) {
+	    $newselect = $child->getTagName;
+          } elsif ($node_type == $ATTRIBUTE_NODE) {
+            $newselect = "@$child->getName";
+          } elsif (($node_type == $TEXT_NODE) || ($node_type == $ENTITY_REFERENCE_NODE)) {
+            $newselect = "text()";
+          } elsif ($node_type == $PROCESSING_INSTRUCTION_NODE) {
+            $newselect = "processing-instruction()";
+          } elsif ($node_type == $COMMENT_NODE) {
+            $newselect = "comment()";
+          } else {
+            my $ref = ref $child;
+            print " "x$parser->{indent},"Unknown node encountered: $ref$/" if $parser->{debug};
+          }
+	} else {
+          $newselect = $select;
+          if ($newselect =~ s/\[(\d+)\]$//) {
+            $newcount = $1;
+          }
+        }
+
+        $parser->_select_template ($child, $newselect, $newcount,
+                                   $current_xml_node,
+                                   $current_xml_selection_path,
+                                   $current_result_node, $newvariables, $variables);
+      }
+      $count++;
+    }
+
+  $parser->{indent} -= $parser->{indent_incr};
+}
+
+sub _for_each {
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
+
+  my $select = $xsl_node->getAttribute ('select');
+  
+  if ($select =~ /\$/) {
+    # replacing occurences of variables:
+    foreach my $varname (keys (%$variables)) {
+      $select =~ s/[^\\]\$$varname/$$variables{$varname}/g;
+    }
+  }
+  
+  if ($select) {
+    print " "x$parser->{indent},"applying template for each child $select of \"$current_xml_selection_path\":$/" if $parser->{debug};
+    my $children = $parser->_get_node_set ($select, $parser->{xml},
+                                           $current_xml_selection_path,
+    					   $current_xml_node, $variables);
+    $parser->{indent} += $parser->{indent_incr};
+      my $count = 1;
+      foreach my $child (@$children) {
+	my $node_type = $child->getNodeType;
+
+        if ($node_type == $DOCUMENT_TYPE_NODE) {
+          # skip #
+          print " "x$parser->{indent},"Skipping Document Type node...$/" if $parser->{debug};
+        } elsif ($node_type == $DOCUMENT_FRAGMENT_NODE) {
+          # skip #
+          print " "x$parser->{indent},"Skipping Document Fragment node...$/" if $parser->{debug};
+        } elsif ($node_type == $NOTATION_NODE) {
+          # skip #
+          print " "x$parser->{indent},"Skipping Notation node...$/" if $parser->{debug};
+        } else {
+
+          $parser->_evaluate_template ($xsl_node, $child,
+                                       "$current_xml_selection_path/$select\[$count\]",
+                                       $current_result_node, $variables, $oldvariables);
+	}
+	$count++;
       }
 
-    $_indent -= $_indent_incr;
+    $parser->{indent} -= $parser->{indent_incr};
+  } else {
+    print " "x$parser->{indent},"expected attribute \"select\" in <$parser->{xsl_ns}for-each>$/" if $parser->{debug};
+    warn "expected attribute \"select\" in <$parser->{xsl_ns}for-each>$/" if $parser->{warnings};
   }
+
+}
+
+sub _select_template {
+  my ($parser, $child, $select, $count, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
+
+  my $ref = ref $child if $parser->{debug};
+  print " "x$parser->{indent},"selecting template $select for child type $ref of \"$current_xml_selection_path\":$/" if $parser->{debug};
+
+  $parser->{indent} += $parser->{indent_incr};
+
+    my $child_xml_selection_path = "$current_xml_selection_path/$select";
+    my $template = $parser->_match_template ("match", $select, $count,
+                                             $child_xml_selection_path);
+
+    if ($template) {
+
+        $parser->_evaluate_template ($template,
+		 	             $child,
+                                     "$child_xml_selection_path\[$count\]",
+                                     $current_result_node, $variables, $oldvariables);
+    } else {
+      print " "x$parser->{indent},"skipping template selection...$/" if $parser->{debug};
+    }
+
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _evaluate_element {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
 
   my $xsl_tag = $xsl_node->getTagName;
-  print " "x$_indent,"evaluating element $xsl_tag from \"$current_xml_selection_path\": $/" if $XSLT::debug;
-  $_indent += $_indent_incr;
+  print " "x$parser->{indent},"evaluating element $xsl_tag from \"$current_xml_selection_path\": $/" if $parser->{debug};
+  $parser->{indent} += $parser->{indent_incr};
 
-  if ($xsl_tag =~ /^xsl:/i) {
-      if ($xsl_tag =~ /^xsl:apply-templates$/i) {
+  if ($xsl_tag =~ /^$parser->{xsl_ns}/i) {
+      if ($xsl_tag =~ /^$parser->{xsl_ns}apply-templates$/i) {
           $parser->_apply_templates ($xsl_node, $current_xml_node,
         			     $current_xml_selection_path,
-                                     $current_result_node);
+                                     $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:attribute$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}attribute$/i) {
           $parser->_attribute ($xsl_node, $current_xml_node,
         		       $current_xml_selection_path,
-                               $current_result_node);
+                               $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:call-template$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}call-template$/i) {
           $parser->_call_template ($xsl_node, $current_xml_node,
         			   $current_xml_selection_path,
-                                   $current_result_node);
+                                   $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:choose$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}choose$/i) {
           $parser->_choose ($xsl_node, $current_xml_node,
         		    $current_xml_selection_path,
-                            $current_result_node);
+                            $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:comment$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}comment$/i) {
           $parser->_comment ($xsl_node, $current_xml_node,
         		     $current_xml_selection_path,
-                             $current_result_node);
+                             $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:copy$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}copy$/i) {
           $parser->_copy ($xsl_node, $current_xml_node,
-                          $current_result_node);
+        		  $current_xml_selection_path,
+                          $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:copy-of$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}copy-of$/i) {
           $parser->_copy_of ($xsl_node, $current_xml_node,
         		     $current_xml_selection_path,
-                             $current_result_node);
+                             $current_result_node, $variables);
 
-      } elsif ($xsl_tag =~ /^xsl:for-each$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}for-each$/i) {
           $parser->_for_each ($xsl_node, $current_xml_node,
         		      $current_xml_selection_path,
-                              $current_result_node);
+                              $current_result_node, $variables, $oldvariables);
 
-      } elsif ($xsl_tag =~ /^xsl:if$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}if$/i) {
           $parser->_if ($xsl_node, $current_xml_node,
         		$current_xml_selection_path,
-                        $current_result_node);
+                        $current_result_node, $variables, $oldvariables);
 
-#      } elsif ($xsl_tag =~ /^xsl:output$/i) {
+#      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}output$/i) {
 
-      } elsif ($xsl_tag =~ /^xsl:processing-instruction$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}param$/i) {
+          $parser->_variable ($xsl_node, $current_xml_node,
+                              $current_xml_selection_path,
+                              $current_result_node, $variables, $oldvariables);
+
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}processing-instruction$/i) {
           $parser->_processing_instruction ($xsl_node, $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:text$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}text$/i) {
           $parser->_text ($xsl_node, $current_result_node);
 
-      } elsif ($xsl_tag =~ /^xsl:value-of$/i) {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}value-of$/i) {
           $parser->_value_of ($xsl_node, $current_xml_node,
                               $current_xml_selection_path,
-                              $current_result_node);
+                              $current_result_node, $variables);
+
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}variable$/i) {
+          $parser->_variable ($xsl_node, $current_xml_node,
+                              $current_xml_selection_path,
+                              $current_result_node, $variables, $oldvariables);
+
       } else {
           $parser->_add_and_recurse ($xsl_node, $current_xml_node,
                                      $current_xml_selection_path,
-                                     $current_result_node);
+                                     $current_result_node, $variables, $oldvariables);
       }
   } else {
 
       $parser->_check_attributes_and_recurse ($xsl_node, $current_xml_node,
                                               $current_xml_selection_path,
-                                              $current_result_node);
+                                              $current_result_node, $variables, $oldvariables);
   }
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
   sub _add_and_recurse {
-    my $parser = shift;
-    my $xsl_node = shift;
-    my $current_xml_node = shift;
-    my $current_xml_selection_path = shift;
-    my $current_result_node = shift;
+    my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+        $current_result_node, $variables, $oldvariables) = @_;
 
     # the addition is commented out to prevent unknown xsl: commands to be printed in the result
     #$parser->_add_node ($xsl_node, $current_result_node);
     $parser->_evaluate_template ($xsl_node, $current_xml_node,
                                  $current_xml_selection_path,
-                                 $current_result_node);#->getLastChild);
+                                 $current_result_node, $variables, $oldvariables);#->getLastChild);
   }
 
   sub _check_attributes_and_recurse {
-    my $parser = shift;
-    my $xsl_node = shift;
-    my $current_xml_node = shift;
-    my $current_xml_selection_path = shift;
-    my $current_result_node = shift;
+    my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+        $current_result_node, $variables, $oldvariables) = @_;
 
     $parser->_add_node ($xsl_node, $current_result_node);
     $parser->_attribute_value_of ($current_result_node->getLastChild,
     				  $current_xml_node,
-                                  $current_xml_selection_path);
+                                  $current_xml_selection_path, $variables);
     $parser->_evaluate_template ($xsl_node, $current_xml_node,
                                  $current_xml_selection_path,
-                                 $current_result_node->getLastChild);
+                                 $current_result_node->getLastChild, $variables, $oldvariables);
   }
 
 sub _value_of {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables) = @_;
 
   my $select = $xsl_node->getAttribute('select');
   my $xml_node;
+
   if ($select) {
-    $xml_node = $parser->_get_node_from_path ($select, $XSLT::xml,
-                                              $current_xml_selection_path,
-                                              $current_xml_node);
-  } else {
-    $xml_node = $current_xml_node;
-  }
+  
+    $xml_node = $parser->_get_node_set ($select, $parser->{xml},
+                                        $current_xml_selection_path,
+                                        $current_xml_node, $variables);
 
-  if ($xml_node) {
-    print " "x$_indent,"stripping node to text:$/" if $XSLT::debug;
+    print " "x$parser->{indent},"stripping node to text:$/" if $parser->{debug};
 
-    $_indent += $_indent_incr;
-      my $text = &__strip_node_to_text__ ($parser, $xml_node);
-    $_indent -= $_indent_incr;
+    $parser->{indent} += $parser->{indent_incr};
+      my $text = "";
+      $text = $parser->__string__ ($$xml_node[0]) if @$xml_node;
+    $parser->{indent} -= $parser->{indent_incr};
 
     if ($text) {
-      $parser->_add_node ($XSLT::xml->createTextNode($text), $current_result_node);
+      $parser->_add_node ($parser->{xml}->createTextNode($text), $current_result_node);
     } else {
-      print " "x$_indent,"nothing left..$/" if $XSLT::debug;
+      print " "x$parser->{indent},"nothing left..$/" if $parser->{debug};
     }
   } else {
-    print " "x$_indent,"selecting value of \"$select\" from \"$current_xml_selection_path\" failed!!!$/" if $XSLT::debug;
-    warn "Cannot select value of \"$select\" from \"$current_xml_selection_path\"$/" if $XSLT::warnings;
+    print " "x$parser->{indent},"expected attribute \"select\" in <$parser->{xsl_ns}value-of>$/" if $parser->{debug};
+    warn "expected attribute \"select\" in <$parser->{xsl_ns}value-of>$/" if $parser->{warnings};
   }
 }
 
   sub __strip_node_to_text__ {
-    my $parser = shift;
-    my $node = shift;
+    my ($parser, $node) = @_;
     
     my $result = "";
 
-    if ($node->getNodeType == TEXT_NODE) {
-      $result = $node->getNodeValue;
-    } elsif (($node->getNodeType == ELEMENT_NODE)
-         || ($node->getNodeType == DOCUMENT_FRAGMENT_NODE)) {
-      print " "x$_indent,"stripping child nodes:$/" if $XSLT::debug;
-      $_indent += $_indent_incr;
+    my $node_type = $node->getNodeType;
+    if ($node_type == $TEXT_NODE) {
+      $result = $node->getData;
+    } elsif (($node_type == $ELEMENT_NODE)
+         || ($node_type == $DOCUMENT_FRAGMENT_NODE)) {
+      $parser->{indent} += $parser->{indent_incr};
       foreach my $child ($node->getChildNodes) {
         $result .= &__strip_node_to_text__ ($parser, $child);
       }
-      $_indent -= $_indent_incr;
+      $parser->{indent} -= $parser->{indent_incr};
     }
     return $result;
   }
 
-sub _move_node {
-  my $parser = shift;
-  my $node = shift;
-  my $parent = shift;
+  sub __string__ {
+    my ($parser, $node) = @_;
+    
+    my $result = "";
 
-  print " "x$_indent,"moving node..$/" if $XSLT::debug;
+    if ($node) {
+      my $ref = (ref ($node) || "ARRAY") if $parser->{debug};
+      print " "x$parser->{indent},"stripping child nodes ($ref):$/" if $parser->{debug};
+
+      $parser->{indent} += $parser->{indent_incr};
+
+        if ($node =~ /ARRAY/) {
+          return $parser->__string__ ($$node[0]);
+        } else {
+          my $node_type = $node->getNodeType;
+
+          if (($node_type == $ELEMENT_NODE)
+          || ($node_type == $DOCUMENT_FRAGMENT_NODE)
+          || ($node_type == $DOCUMENT_NODE)) {
+            foreach my $child ($node->getChildNodes) {
+	      $result .= &__string__ ($parser, $child);
+            }
+          } elsif ($node_type == $ATTRIBUTE_NODE) {
+	    $result .= $node->getValue;
+          } elsif (($node_type == $TEXT_NODE)
+          || ($node_type == $ENTITY_REFERENCE_NODE)) {
+	    $result .= $node->getData;
+          }
+        }
+
+        print " "x$parser->{indent},"  \"$result\"$/" if $parser->{debug};
+      $parser->{indent} -= $parser->{indent_incr};
+    } else {
+      print " "x$parser->{indent}," no result$/" if $parser->{debug};
+    }
+ 
+    return $result;
+  }
+
+sub _move_node {
+  my ($parser, $node, $parent) = @_;
+
+  print " "x$parser->{indent},"moving node..$/" if $parser->{debug};
 
   $parent->appendChild($node);
 }
 
-sub _get_node_from_path {
-  my $parser = shift;
-  my $path = (shift || "");
-  my $root_node = shift;
-  my $current_path = (shift || "/");
-  my $current_node = (shift || $root_node);
-  my $multi = (shift || 0);
+sub _get_node_set {
+  my ($parser, $path, $root_node, $current_path, $current_node, $variables,
+      $silent) = @_;
+  $current_path ||= "/";
+  $current_node ||= $root_node;
+  $silent ||= 0;
+  
+  print " "x$parser->{indent},"getting node-set \"$path\" from \"$current_path\":$/" if $parser->{debug};
 
-  print " "x$_indent,"getting NodeList of \"$path\" from \"$current_path\"" if $XSLT::debug && $multi;
-  print " "x$_indent,"getting value of \"$path\" from \"$current_path\"" if $XSLT::debug && ! $multi;
+  $parser->{indent} += $parser->{indent_incr};
 
-  if ($path eq $current_path || $path eq ".") {
-    print ": direct hit!$/" if $XSLT::debug;
-    if ($multi) {
+    if ($path =~ /^\$([\w\.\-]+)$/) {
+      my $varname = $1;
+      my $var = $$variables{$varname};
+      if ($var) {
+        if ($$variables{$varname} =~ /^ARRAY/i) {
+          # node-set array
+          return $$variables{$varname};
+        } elsif (ref ($$variables{$varname}) =~ /^XML::DOM::NodeList/i) {
+          # node-set nodelist
+          return [@{$$variables{$varname}}];
+        } elsif (ref ($$variables{$varname}) =~ /^XML::DOM::DocumentFragment/i) {
+          # node-set nodelist
+          return [$$variables{$varname}->getChildNodes];
+        } else {
+          # string or number?
+          return [$parser->{xml}->createTextNode ($$variables{$varname})];
+        }
+      } else {
+        # var does not exist
+        return [];
+      }
+    } elsif ($path eq $current_path || $path eq ".") {
+      print " "x$parser->{indent},"direct hit!$/" if $parser->{debug};
       return [$current_node];
     } else {
-      return $current_node;
-    }
-  } else {
-    if ($path =~ /^\s*document\s*\(["'](.*?)["']\s*,\s*(.*)\)\s*$/i) {
-      # a selection in a different document!
-      $path = $2;
-      $current_node = &__open_document__($parser, $1);
-    } elsif ($path =~ /^\//) {
-      # start from the root #
-      $current_node = $root_node;
-    } elsif ($path =~ /^\.\//) {
-      # voorlopende punt bij "./etc" weghalen #
-      $path =~ s/^\.//;
-    } else {
-      # voor het parseren, path beginnen met / #
-      $path = "/$path";
-    }
-    
-    print " using \"$path\": $/" if $XSLT::debug;
-    $_indent += $_indent_incr;
-      $current_node = &__get_node_from_path__($parser, $path, $current_node, $multi);
-    $_indent -= $_indent_incr;
-    
-    if ($multi) {
-      if ((ref $current_node) !~ /(ARRAY|NodeList)/i) {
-        return [$current_node];
-      } else {
-        return $current_node;
+      # open external documents first #
+      if ($path =~ /^\s*document\s*\(["'](.*?)["']\s*(,\s*(.*)\s*){0,1}\)\s*(.*)$/i) {
+        my $filename = $1;
+        my $sec_arg = $3;
+        $path = ($4 || "");
+
+        print " "x$parser->{indent},"external selection (\"$filename\")!$/" if $parser->{debug};
+
+        if ($sec_arg) {
+	  print " "x$parser->{indent}," Ignoring second argument of $path$/" if $parser->{debug};
+	  warn "Ignoring second argument of $path$/" if $parser->{warnings} && !$silent;
+        }
+
+        ($root_node) = $parser->_open_by_filename ($parser, $filename, $parser->{xsl_dir});
       }
-    } elsif ($current_node && $current_node->getNodeType == ATTRIBUTE_NODE) {
-      return $XSLT::xml->createTextNode ($current_node->getValue);
-    } else {
-      return $current_node;
-    }
+
+      if ($path =~ /^\//) {
+        # start from the root #
+        $current_node = $root_node;
+      } elsif ($path =~ /^\.\//) {
+        # remove preceding dot from './etc' #
+        $path =~ s/^\.//;
+      } else {
+        # to facilitate parsing, precede path with a '/' #
+        $path = "/$path";
+      }
+
+      print " "x$parser->{indent},"using \"$path\": $/" if $parser->{debug};
+
+      $current_node = &__get_node_set__ ($parser, $path, [$current_node], $silent);
+
+    $parser->{indent} -= $parser->{indent_incr};
+    
+    return $current_node;
   }
 }
 
-  sub __open_document__ {
-    my $parser = shift;
-    my $new_document = shift;
-    my $path = shift;
-    if ($new_document) {
-      if ($new_document =~ /^http:/i) {
 
-        # Use UserAgent to request a GET HTTP
-        my $useragent = new LWP::UserAgent;
-        my $request = new HTTP::Request GET => $new_document;
-        my $result = $useragent->request($request);
+  # auxiliary function #
+  sub __get_node_set__ {
+    my ($parser, $path, $node, $silent) = @_;
 
-        # Check the outcome of the response
-        if ($result->is_success) {
-          print " "x$_indent,"expanding included URL $new_document$/" if $XSLT::debug;
+    # a Qname (?) should actually be: [a-Z_][\w\.\-]*\:[a-Z_][\w\.\-]*
 
-          # parse file and return tree
-          return $XSLT::DOMparser->parse ($result->content);
+    if ($path eq "" || $path eq "/") {
 
-        } else {
-          print " "x$_indent,"include URL $new_document can not be requested!$/" if $XSLT::debug;
-          warn "include URL $new_document can not be requested!$/" if $XSLT::warnings;
-        }
-      } else {
-        if ($new_document !~ /^(\/|\.)/i) {
-          $new_document = "$_xsl_dir/$new_document";
-        }
-
-        if (-f $new_document) {
-
-          print " "x$_indent,"expanding included file $new_document$/" if $XSLT::debug;
-
-          # parse file and return tree
-          return $XSLT::DOMparser->parsefile ($new_document);
-
-        } else {
-          print " "x$_indent,"include $new_document can not be read!$/" if $XSLT::debug;
-          warn "include $new_document can not be read!$/" if $XSLT::warnings;
-        }
-      }
-    } else {
-      print " "x$_indent,"no document to open!$/" if $XSLT::debug;
-      warn "no document to open!$/" if $XSLT::warnings;
-    }
-    return "";
-  }
-
-  sub __get_node_from_path__ {
-    my $parser = shift;
-    my $path = (shift || "");
-    my $node = shift;
-    my $multi = shift;
-
-    # a Qname should actually be: [a-Z_][\w\.\-]*
-
-    if ($path eq "") {
-
-      print " "x$_indent,"node found!$/" if $XSLT::debug;
+      print " "x$parser->{indent},"node found!$/" if $parser->{debug};
       return $node;
 
     } else {
-      if ($multi) {
-        #print " "x$_indent,"dunno how to process a NodeList yet (\"$path\")$/" if $XSLT::debug;
-        #warn ("get-node-from-path: Dunno how to process a NodeList yet !!!$/") if $XSLT::warnings;
-        if ((ref $node) =~ /NodeList/i) {
-          my $list = [];
-          foreach my $item (@$node) {
-            my $sublist = &__try_a_step__($parser, $path, $item, $multi);
-            push (@$list, @$sublist);
-          }
-          return $list;
-        } else {
-          return &__try_a_step__($parser, $path, $node, $multi);
-        }
-      } else {
-        if ((ref $node) =~ /NodeList/i) {
-          print " "x$_indent,"dunno how to select from a NodeList (\"$path\")$/" if $XSLT::debug;
-          warn ("get-node-from-path: Dunno how to select from a NodeList !!!$/") if $XSLT::warnings;
-          return "";
-        } else {
-          return &__try_a_step__($parser, $path, $node, $multi);
-        }
+      my $list = [];
+      foreach my $item (@$node) {
+        my $sublist = &__try_a_step__ ($parser, $path, $item, $silent);
+        push (@$list, @$sublist);
       }
+      return $list;
     }
   }
 
     sub __try_a_step__ {
-      my $parser = shift;
-      my $path = (shift || "");
-      my $node = shift;
-      my $multi = shift;
+      my ($parser, $path, $node, $silent) = @_;
 
       study ($path);
-      if ($path =~ /^\/\.\.\//) {
-
+      if ($path =~ s/^\/\.\.\///) {
         # /.. #
-        print " "x$_indent,"getting parent (\"$path\")$/" if $XSLT::debug;
-        return &__parent__($parser, $path, $node, $multi);
+        print " "x$parser->{indent},"getting parent (\"$path\")$/" if $parser->{debug};
+        return &__parent__ ($parser, $path, $node, $silent);
 
-      } elsif ($path =~ /^\/([\w\.\:\-]+)\[(\d+?)\]/) {
-
+      } elsif ($path =~ s/^\/(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
         # /elem[n] #
-        print " "x$_indent,"getting indexed element $1 $2 (\"$path\")$/" if $XSLT::debug;
-        return &__indexed_element__($parser, $1, $2, $path, $node, $multi);
+        print " "x$parser->{indent},"getting indexed element $1 $2 (\"$path\")$/" if $parser->{debug};
+        return &__indexed_element__ ($parser, $1, $2, $path, $node, $silent);
 
-      } elsif ($path =~ /^\/([\w\.\:\-]+)/) {
-
+      } elsif ($path =~ s/^\/(\*|[\w\.\:\-]+)//) {
         # /elem #
-        print " "x$_indent,"getting element $1 (\"$path\")$/" if $XSLT::debug;
-        return &__element__($parser, $1, $path, $node, $multi);
+        print " "x$parser->{indent},"getting element $1 (\"$path\")$/" if $parser->{debug};
+        return &__element__ ($parser, $1, $path, $node, $silent);
 
-      } elsif ($path =~ /^\/\/([\w\.\:\-]+)\[(\d+?)\]/) {
-
+      } elsif ($path =~ s/^\/\/(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
         # //elem[n] #
-        print " "x$_indent,"getting deep indexed element $1 $2 (\"$path\")$/" if $XSLT::debug;
-        return &__indexed_element__($parser, $1, $2, $path, $node, $multi, "deep");
+        print " "x$parser->{indent},"getting deep indexed element $1 $2 (\"$path\")$/" if $parser->{debug};
+        return &__indexed_element__ ($parser, $1, $2, $path, $node, $silent, "deep");
 
-      } elsif ($path =~ /^\/\/([\w\.\:\-]+)/) {
-
+      } elsif ($path =~ s/^\/\/(\*|[\w\.\:\-]+)//) {
         # //elem #
-        print " "x$_indent,"getting deep element $1 (\"$path\")$/" if $XSLT::debug;
-        return &__element__($parser, $1, $path, $node, $multi, "deep");
+        print " "x$parser->{indent},"getting deep element $1 (\"$path\")$/" if $parser->{debug};
+        return &__element__ ($parser, $1, $path, $node, $silent, "deep");
 
-      } elsif ($path =~ /^\/\@([\w\.\:\-]+)/) {
-
+      } elsif ($path =~ s/^\/\@(\*|[\w\.\:\-]+)//) {
         # /@attr #
-        print " "x$_indent,"getting attribute $1 (\"$path\")$/" if $XSLT::debug;
-        return &__attribute__($parser, $1, $path, $node, $multi);
+        print " "x$parser->{indent},"getting attribute $1 (\"$path\")$/" if $parser->{debug};
+        return &__attribute__ ($parser, $1, $path, $node, $silent);
+
+      } elsif ($path =~ s/^\/text\(\)//) {
+        # /text() #
+        print " "x$parser->{indent},"getting text (\"$path\")$/" if $parser->{debug};
+        return &__get_nodes__ ($parser, $TEXT_NODE, $path, $node, $silent);
+
+      } elsif ($path =~ s/^\/processing-instruction\(\)//) {
+        # /processing-instruction() #
+        print " "x$parser->{indent},"getting processing instruction (\"$path\")$/" if $parser->{debug};
+        return &__get_nodes__ ($parser, $PROCESSING_INSTRUCTION_NODE, $path, $node, $silent);
+
+      } elsif ($path =~ s/^\/comment\(\)//) {
+        # /comment() #
+        print " "x$parser->{indent},"getting comment (\"$path\")$/" if $parser->{debug};
+        return &__get_nodes__ ($parser, $COMMENT_NODE, $path, $node, $silent);
 
       } else {
-        print " "x$_indent,"dunno what to do with path $path !!!$/" if $XSLT::debug;
-        warn ("get-node-from-path: Dunno what to do with path $path !!!$/") if $XSLT::warnings;
-        return [] if $multi;
-        return "" if !$multi;
+        print " "x$parser->{indent},"dunno what to do with path $path !!!$/" if $parser->{debug};
+        warn ("get-node-from-path: Dunno what to do with path $path !!!$/") if $parser->{warnings} && !$silent;
+        return [];
       }
     }
 
     sub __parent__ {
-        my $parser = shift;
-        my $path = (shift || "");
-        my $node = shift;
-        my $multi = shift;
+        my ($parser, $path, $node, $silent) = @_;
 
-        $path =~ s/^\/\.\.//;
+        $parser->{indent} += $parser->{indent_incr};
+          if (($node->getNodeType == $DOCUMENT_NODE)
+            || ($node->getNodeType == $DOCUMENT_FRAGMENT_NODE)) {
+            print " "x$parser->{indent},"no parent!$/" if $parser->{debug};
+	    $node = [];
+          } else {
+            $node = $node->getParentNode;
 
-        $_indent += $_indent_incr;
-        if (($node->getNodeType == DOCUMENT_NODE)
-          || ($node->getNodeType == DOCUMENT_FRAGMENT_NODE)) {
-          print " "x$_indent,"no parent!$/" if $XSLT::debug;
-        } else {
-          $node = $node->getParentNode;
-        }
+            $node = &__get_node_set__ ($parser, $path, [$node], $silent);
+          }
+        $parser->{indent} -= $parser->{indent_incr};
 
-        if ($node) {
-          $node = &__get_node_from_path__($parser, $path, $node, $multi);
-        } else {
-          print " "x$_indent,"failed!$/" if $XSLT::debug;
-        }
-        $_indent -= $_indent_incr;
-
-        return [$node] if $multi;
-        return $node if !$multi;
+        return $node;
     }
 
     sub __indexed_element__ {
-        my $parser = shift;
-        my $element = (shift || "");
-        my $index = (shift || 0);
-        my $path = (shift || "");
-        my $node = shift;
-        my $multi = shift;
-        my $deep = shift;
-        $deep = 0 unless defined $deep;
+        my ($parser, $element, $index, $path, $node, $silent, $deep) = @_;
+	$index ||= 0;
+        $deep ||= ""; # False #
 
-        if ($deep) {
-          $path =~ s/^\/\/$element\[$index\]//;
+        if ($index =~ /^first\s*\(\)/i) {
+          $index = 0;
+	} elsif ($index =~ /^last\s*\(\)/i) {
+          $index = -1;
         } else {
-          $path =~ s/^\/$element\[$index\]//;
+          $index--;
         }
 
-        $node = $node->getElementsByTagName($element, $deep)->item($index-1);
+        my @list = $node->getElementsByTagName($element, $deep);
+        
+	if (@list) {
+	  $node = $list[$index];
+	} else {
+	  $node = "";
+	}
 
-        $_indent += $_indent_incr;
-        if ($node) {
-          $node = &__get_node_from_path__($parser, $path, $node, $multi);
-        } else {
-          print " "x$_indent,"failed!$/" if $XSLT::debug;
-        }
-        $_indent -= $_indent_incr;
-        return [$node] if $multi;
-        return $node if !$multi;
+        $parser->{indent} += $parser->{indent_incr};
+          if ($node) {
+            $node = &__get_node_set__ ($parser, $path, [$node], $silent);
+          } else {
+            print " "x$parser->{indent},"failed!$/" if $parser->{debug};
+	    $node = [];
+          }
+        $parser->{indent} -= $parser->{indent_incr};
+
+        return $node;
     }
 
     sub __element__ {
-        my $parser = shift;
-        my $element = (shift || "");
-        my $path = (shift || "");
-        my $node = shift;
-        my $multi = shift;
-        my $deep = shift;
-        $deep = 0 unless defined $deep;
+        my ($parser, $element, $path, $node, $silent, $deep) = @_;
+        $deep ||= ""; # False #
 
-        if ($deep) {
-          $path =~ s/^\/\/$element//;
-        } else {
-          $path =~ s/^\/$element//;
-        }
+        $node = [$node->getElementsByTagName($element, $deep)];
 
-        $node = $node->getElementsByTagName($element, $deep);
-        $node = $node->item(0) if (! $multi);
+        $parser->{indent} += $parser->{indent_incr};
+          if (@$node) {
+            $node = &__get_node_set__($parser, $path, $node, $silent);
+          } else {
+            print " "x$parser->{indent},"failed!$/" if $parser->{debug};
+          }
+        $parser->{indent} -= $parser->{indent_incr};
 
-        $_indent += $_indent_incr;
-        if ($node) {
-          $node = &__get_node_from_path__($parser, $path, $node, $multi);
-        } else {
-          print " "x$_indent,"failed!$/" if $XSLT::debug;
-        }
-        $_indent -= $_indent_incr;
         return $node;
     }
 
     sub __attribute__ {
-        my $parser = shift;
-        my $attribute = (shift || "");
-        my $path = (shift || "");
-        my $node = shift;
-        my $multi = shift;
+        my ($parser, $attribute, $path, $node, $silent) = @_;
 
-        $path =~ s/^\/\@$attribute//;
-        $node = $node->getAttributeNode($attribute);
-
-        $_indent += $_indent_incr;
-        if ($node) {
-          $node = &__get_node_from_path__($parser, $path, $node, $multi);
+        if ($attribute eq '*') {
+          $node = $node->getAttributes->getValues;
+        
+          $parser->{indent} += $parser->{indent_incr};
+            if ($node) {
+              $node = &__get_node_set__ ($parser, $path, $node, $silent);
+            } else {
+              print " "x$parser->{indent},"failed!$/" if $parser->{debug};
+            }
+          $parser->{indent} -= $parser->{indent_incr};
         } else {
-          print " "x$_indent,"failed!$/" if $XSLT::debug;
+          $node = $node->getAttributeNode($attribute);
+        
+          $parser->{indent} += $parser->{indent_incr};
+            if ($node) {
+              $node = &__get_node_set__ ($parser, $path, [$node], $silent);
+            } else {
+              print " "x$parser->{indent},"failed!$/" if $parser->{debug};
+              $node = [];
+            }
+          $parser->{indent} -= $parser->{indent_incr};
         }
-        $_indent -= $_indent_incr;
-        return [$node] if $multi;
-        return $node if !$multi;
+
+	return $node;
     }
 
+    sub __get_nodes__ {
+        my ($parser, $node_type, $path, $node, $silent) = @_;
+
+        my $result = [];
+
+        $parser->{indent} += $parser->{indent_incr};
+        foreach my $child ($node->getChildNodes) {
+	  if ($child->getNodeType == $node_type) {
+	    $result = [@$result, &__get_node_set__ ($parser, $path, [$child], $silent)];
+	  }
+	}
+        $parser->{indent} -= $parser->{indent_incr};
+	
+	if (! @$result) {
+	  print " "x$parser->{indent},"failed!$/" if $parser->{debug};
+        }
+        
+	return $result;
+    }
+
+
 sub _attribute_value_of {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $variables) = @_;
 
-  my $attributes = $xsl_node->getAttributes;
-
-  for (my $i = 0; $i < $attributes->getLength; $i++) {
-    my $attribute = $attributes->item($i);
+  foreach my $attribute ($xsl_node->getAttributes->getValues) {
     my $value = $attribute->getValue;
     study ($value);
     #$value =~ s/(\*|\$|\@|\&|\?|\+|\\)/\\$1/g;
     $value =~ s/(\*|\?|\+)/\\$1/g;
     study ($value);
     while ($value =~ /\G[^\\]?\{(.*?[^\\]?)\}/) {
-      my $node = $parser->_get_node_from_path ($1, $XSLT::xml,
-                                               $current_xml_selection_path,
-                                               $current_xml_node);
-      if ($node) {
-        $_indent += $_indent_incr;
-          my $text = &__strip_node_to_text__ ($parser, $node);
-        $_indent -= $_indent_incr;
+      my $node = $parser->_get_node_set ($1, $parser->{xml},
+                                         $current_xml_selection_path,
+                                         $current_xml_node, $variables);
+      if (@$node) {
+        $parser->{indent} += $parser->{indent_incr};
+          my $text = $parser->__string__ ($$node[0]);
+        $parser->{indent} -= $parser->{indent_incr};
         $value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1$text/;
       } else {
         $value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1/;
@@ -1042,185 +1408,221 @@ sub _attribute_value_of {
 }
 
 sub _processing_instruction {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_result_node, $variables, $oldvariables) = @_;
 
   my $new_PI_name = $xsl_node->getAttribute('name');
 
   if ($new_PI_name eq "xml") {
-    print " "x$_indent,"<xsl:processing-instruction> may not be used to create XML$/" if $XSLT::debug;
-    print " "x$_indent,"declaration. Use <xsl:output> instead...$/" if $XSLT::debug;
-    warn "<xsl:processing-instruction> may not be used to create XML$/" if $XSLT::warnings;
-    warn "declaration. Use <xsl:output> instead...$/" if $XSLT::warning;
+    print " "x$parser->{indent},"<$parser->{xsl_ns}processing-instruction> may not be used to create XML$/" if $parser->{debug};
+    print " "x$parser->{indent},"declaration. Use <$parser->{xsl_ns}output> instead...$/" if $parser->{debug};
+    warn "<$parser->{xsl_ns}processing-instruction> may not be used to create XML$/" if $parser->{warnings};
+    warn "declaration. Use <$parser->{xsl_ns}output> instead...$/" if $parser->{warnings};
   } elsif ($new_PI_name) {
-    my $text = &__strip_node_to_texts__ ($xsl_node);
-    my $new_PI = $XSLT::xml->createProcessingInstruction($new_PI_name, $text);
+    my $text = $parser->__string__ ($xsl_node);
+    my $new_PI = $parser->{xml}->createProcessingInstruction($new_PI_name, $text);
 
     if ($new_PI) {
       $parser->_move_node ($new_PI, $current_result_node);
     }
   } else {
-    
+    print " "x$parser->{indent},"expected attribute \"name\" in <$parser->{xsl_ns}processing-instruction> !$/" if $parser->{debug};
+    warn "Expected attribute \"name\" in <$parser->{xsl_ns}processing-instruction> !$/" if $parser->{warnings};
   }
 }
 
+sub _process_with_params {
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $variables, $oldvariables) = @_;
+
+  my @params = $xsl_node->getElementsByTagName("$parser->{xsl_ns}with-param");
+  foreach my $param (@params) {
+    my $varname = $param->getAttribute('name');
+
+    if ($varname) {
+      if ($$oldvariables{$varname}) {
+        $$variables{$varname} = $$oldvariables{$varname};
+      } else {
+        my $value = $param->getAttribute('select');
+        
+        if (!$value) {
+          # process content as template
+          my $result = $parser->{xml}->createDocumentFragment;
+
+          $parser->_evaluate_template ($param,
+				       $current_xml_node,
+				       $current_xml_selection_path,
+				       $result, $variables, $oldvariables);
+
+          $parser->{indent} += $parser->{indent_incr};
+            $value = $parser->__string__ ($result);
+          $parser->{indent} -= $parser->{indent_incr};
+
+          $result->dispose();
+        }
+        
+        $$variables{$varname} = $value;
+      }
+    } else {
+      print " "x$parser->{indent},"expected attribute \"name\" in <$parser->{xsl_ns}with-param> !$/" if $parser->{debug};
+      warn "Expected attribute \"name\" in <$parser->{xsl_ns}with-param> !$/" if $parser->{warnings};
+    }
+
+  }
+
+}
+
 sub _call_template {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
+
+  my $newvariables = {()};
 
   my $name = $xsl_node->getAttribute('name');
   
   if ($name) {
-    print " "x$_indent,"calling template named \"$name\"$/" if $XSLT::debug;
+    print " "x$parser->{indent},"calling template named \"$name\"$/" if $parser->{debug};
 
-    $_indent += $_indent_incr;
-    my $template = $parser->_find_template ("name", $name);
+    $parser->_process_with_params ($xsl_node, $current_xml_node,
+      				   $current_xml_selection_path,
+                                   $current_result_node, $variables, $oldvariables);
+
+    $parser->{indent} += $parser->{indent_incr};
+    my $template = $parser->_match_template ("name", $name, 0, '');
 
     if ($template) {
       $parser->_evaluate_template ($template, $current_xml_node,
       				   $current_xml_selection_path,
-                                   $current_result_node);
+                                   $current_result_node, $variables, $oldvariables);
     } else {
-      print " "x$_indent,"no template found!$/" if $XSLT::debug;
-      warn "no template named $name found!$/" if $XSLT::warnings;
+      print " "x$parser->{indent},"no template found!$/" if $parser->{debug};
+      warn "no template named $name found!$/" if $parser->{warnings};
     }
-    $_indent -= $_indent_incr;
+    $parser->{indent} -= $parser->{indent_incr};
   } else {
-    print " "x$_indent,"expected attribute \"name\" in <xsl:call-template/>$/" if $XSLT::debug;
-    warn "expected attribute \"name\" in <xsl:call-template/>$/" if $XSLT::warnings;
+    print " "x$parser->{indent},"expected attribute \"name\" in <$parser->{xsl_ns}call-template/>$/" if $parser->{debug};
+    warn "Expected attribute \"name\" in <$parser->{xsl_ns}call-template/>$/" if $parser->{warnings};
   }
 }
 
 sub _choose {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
 
-  print " "x$_indent,"evaluating choose:$/" if $XSLT::debug;
+  print " "x$parser->{indent},"evaluating choose:$/" if $parser->{debug};
 
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
 
   my $notdone = "true";
   my $testwhen = "active";
   foreach my $child ($xsl_node->getElementsByTagName ('*', 0)) {
-    if ($notdone && $testwhen && ($child->getTagName eq 'xsl:when')) {
+    if ($notdone && $testwhen && ($child->getTagName eq "$parser->{xsl_ns}when")) {
       my $test = $child->getAttribute ('test');
 
       if ($test) {
         my $test_succeeds = $parser->_evaluate_test ($test, $current_xml_node,
-      						     $current_xml_selection_path);
+      						     $current_xml_selection_path,
+                                                     $variables);
         if ($test_succeeds) {
           $parser->_evaluate_template ($child, $current_xml_node,
         			       $current_xml_selection_path,
-                                       $current_result_node);
+                                       $current_result_node, $variables, $oldvariables);
           $testwhen = "";
           $notdone = "";
         }
       } else {
-        print " "x$_indent,"expected attribute \"test\" in <xsl:when>$/" if $XSLT::debug;
-        warn "expected attribute \"test\" in <xsl:when>$/" if $XSLT::warnings;
+        print " "x$parser->{indent},"expected attribute \"test\" in <$parser->{xsl_ns}when>$/" if $parser->{debug};
+        warn "expected attribute \"test\" in <$parser->{xsl_ns}when>$/" if $parser->{warnings};
       }
-    } elsif ($notdone && ($child->getTagName eq 'xsl:otherwise')) {
+    } elsif ($notdone && ($child->getTagName eq "$parser->{xsl_ns}otherwise")) {
       $parser->_evaluate_template ($child, $current_xml_node,
         			   $current_xml_selection_path,
-                                   $current_result_node);
+                                   $current_result_node, $variables, $oldvariables);
       $notdone = "";
     }
   }
   
   if ($notdone) {
-  print " "x$_indent,"nothing done!$/" if $XSLT::debug;
+  print " "x$parser->{indent},"nothing done!$/" if $parser->{debug};
   }
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _if {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
 
-  print " "x$_indent,"evaluating if:$/" if $XSLT::debug;
+  print " "x$parser->{indent},"evaluating if:$/" if $parser->{debug};
 
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
 
     my $test = $xsl_node->getAttribute ('test');
 
     if ($test) {
       my $test_succeeds = $parser->_evaluate_test ($test, $current_xml_node,
-      						   $current_xml_selection_path);
+      						   $current_xml_selection_path,
+                                                   $variables);
       if ($test_succeeds) {
         $parser->_evaluate_template ($xsl_node, $current_xml_node,
         			     $current_xml_selection_path,
-                                     $current_result_node);
+                                     $current_result_node, $variables, $oldvariables);
       }
     } else {
-      print " "x$_indent,"expected attribute \"test\" in <xsl:if>$/" if $XSLT::debug;
-      warn "expected attribute \"test\" in <xsl:if>$/" if $XSLT::warnings;
+      print " "x$parser->{indent},"expected attribute \"test\" in <$parser->{xsl_ns}if>$/" if $parser->{debug};
+      warn "expected attribute \"test\" in <$parser->{xsl_ns}if>$/" if $parser->{warnings};
     }
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _evaluate_test {
-  my $parser = shift;
-  my $test = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
+  my ($parser, $test, $current_xml_node, $current_xml_selection_path,
+      $variables) = @_;
 
   if ($test =~ /^(.+)\/\[(.+)\]$/) {
     my $path = $1;
     $test = $2;
     
-    print " "x$_indent,"evaluating test $test at path $path:$/" if $XSLT::debug;
+    print " "x$parser->{indent},"evaluating test $test at path $path:$/" if $parser->{debug};
 
-    $_indent += $_indent_incr;
-      my $node = $parser->_get_node_from_path($path, $XSLT::xml,
-                                              $current_xml_selection_path,
-                                              $current_xml_node);
-      if ($node) {
-        $current_xml_node = $node;
+    $parser->{indent} += $parser->{indent_incr};
+      my $node = $parser->_get_node_set ($path, $parser->{xml},
+                                         $current_xml_selection_path,
+                                         $current_xml_node, $variables);
+      if (@$node) {
+        $current_xml_node = $$node[0];
       } else {
         return "";
       }
-    $_indent -= $_indent_incr;
+    $parser->{indent} -= $parser->{indent_incr};
   } else {
-    print " "x$_indent,"evaluating path or test $test:$/" if $XSLT::debug;
-    my $node = $parser->_get_node_from_path($test, $XSLT::xml,
-                                            $current_xml_selection_path,
-                                            $current_xml_node);
-    $_indent += $_indent_incr;
-      if ($node) {
-        print " "x$_indent,"path exists!$/" if $XSLT::debug;
+    print " "x$parser->{indent},"evaluating path or test $test:$/" if $parser->{debug};
+    my $node = $parser->_get_node_set ($test, $parser->{xml},
+                                       $current_xml_selection_path,
+                                       $current_xml_node, $variables, "silent");
+    $parser->{indent} += $parser->{indent_incr};
+      if (@$node) {
+        print " "x$parser->{indent},"path exists!$/" if $parser->{debug};
         return "true";
       } else {
-        print " "x$_indent,"not a valid path, evaluating as test$/" if $XSLT::debug;
+        print " "x$parser->{indent},"not a valid path, evaluating as test$/" if $parser->{debug};
       }
-    $_indent -= $_indent_incr;
+    $parser->{indent} -= $parser->{indent_incr};
   }
 
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
     my $result = &__evaluate_test__ ($test, $current_xml_node);
     if ($result) {
-      print " "x$_indent,"test evaluates true..$/" if $XSLT::debug;
+      print " "x$parser->{indent},"test evaluates true..$/" if $parser->{debug};
     } else {
-      print " "x$_indent,"test evaluates false..$/" if $XSLT::debug;
+      print " "x$parser->{indent},"test evaluates false..$/" if $parser->{debug};
     }
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
   return $result;
 }
 
   sub __evaluate_test__ {
-    my $test = shift;
-    my $node = shift;
+    my ($test, $node) = @_;
 
 #print "testing with \"$test\" and ", ref $node,$/;
     if ($test =~ /^\s*\@([\w\.\:\-]+)\s*!=\s*['"](.*)['"]\s*$/) {
@@ -1231,11 +1633,11 @@ sub _evaluate_test {
       return ($attr eq $2);
     } elsif ($test =~ /^\s*([\w\.\:\-]+)\s*!=\s*['"](.*)['"]\s*$/) {
       $node->normalize;
-      my $content = $node->getFirstChild->getNodeValue;
+      my $content = $node->getFirstChild->getValue;
       return ($content !~ /$2/m);
     } elsif ($test =~ /^\s*([\w\.\:\-]+)\s*=\s*['"](.*)['"]\s*$/) {
       $node->normalize;
-      my $content = $node->getFirstChild->getNodeValue;
+      my $content = $node->getFirstChild->getValue;
       return ($content =~ /^\s*$2\s*/m);
     } else {
       return "";
@@ -1243,103 +1645,52 @@ sub _evaluate_test {
   }
 
 sub _copy_of {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables) = @_;
 
   my $nodelist;
   my $select = $xsl_node->getAttribute('select');
-  print " "x$_indent,"evaluating copy-of with select \"$select\":$/" if $XSLT::debug;
+  print " "x$parser->{indent},"evaluating copy-of with select \"$select\":$/" if $parser->{debug};
   
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
   if ($select) {
-    $nodelist = $parser->_get_node_from_path ($select, $XSLT::xml,
-                                                 $current_xml_selection_path,
-    			  		         $current_xml_node,
-                                                 "asNodeList");
+    $nodelist = $parser->_get_node_set ($select, $parser->{xml},
+                                        $current_xml_selection_path,
+    			  		$current_xml_node, $variables);
   } else {
-    print " "x$_indent,"expected attribute \"select\" in <xsl:copy-of>$/" if $XSLT::debug;
-    warn "expected attribute \"select\" in <xsl:copy-of>$/" if $XSLT::warnings;
+    print " "x$parser->{indent},"expected attribute \"select\" in <$parser->{xsl_ns}copy-of>$/" if $parser->{debug};
+    warn "expected attribute \"select\" in <$parser->{xsl_ns}copy-of>$/" if $parser->{warnings};
   }
-  for (my $i = 0; $i < @$nodelist;$i++) {
-    my $node = $$nodelist[$i];
-    $parser->_add_node ($node, $current_result_node, 1);
+  foreach my $node (@$nodelist) {
+    $parser->_add_node ($node, $current_result_node, "deep");
   }
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _copy {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
 
-  print " "x$_indent,"evaluating copy:$/" if $XSLT::debug;
 
-  $_indent += $_indent_incr;
-    $parser->_add_node ($current_xml_node, $current_result_node);
-  $_indent -= $_indent_incr;
-}
+  print " "x$parser->{indent},"evaluating copy:$/" if $parser->{debug};
 
-sub _for_each {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
-
-  my $select = $xsl_node->getAttribute ('select');
-  if ($select) {
-    print " "x$_indent,"applying template for each child $select of \"$current_xml_selection_path\":$/" if $XSLT::debug;
-    my $children = $parser->_get_node_from_path ($select, $XSLT::xml,
-                                                 $current_xml_selection_path,
-    					         $current_xml_node,
-                                                 "asNodeList");
-    $_indent += $_indent_incr;
-
-    for (my $i = 0; $i < @$children;$i++) {
-      my $child = $$children[$i];
-      my $ref = ref $child;
-      print " "x$_indent,"$ref$/" if $XSLT::debug;
-      $_indent += $_indent_incr;
-
-        if ($child->getNodeType == DOCUMENT_NODE) {
-          $child = $child->getFirstChild;
-        }
-        
-        my $child_xml_selection_path = $child->getNodeName;
-        $child_xml_selection_path = "$current_xml_selection_path/$child_xml_selection_path";
-
-        if ($child->getNodeType == ELEMENT_NODE) {
-          $parser->_evaluate_template ($xsl_node,
-		 	               $child,
-                                       $child_xml_selection_path,
-                                       $current_result_node);
-        } elsif ($child->getNodeType == TEXT_NODE) {
-            $parser->_add_node($child, $current_result_node);
-        } elsif ($child->getNodeType == CDATA_SECTION_NODE) {
-            my $text = $XSLT::xml->createTextNode ($child->getNodeValue);
-            $parser->_add_node($child, $current_result_node);
-        } elsif ($child->getNodeType == DOCUMENT_TYPE_NODE) {
-            # skip #
-        } elsif ($child->getNodeType == COMMENT_NODE) {
-            # skip #
-        } else {
-            print " "x$_indent,"Cannot do a for-each on nodes of type $ref$/" if $XSLT::debug;
-            warn ("for-each: Dunno what to do with nodes of type $ref !!! ($child_xml_selection_path)$/") if $XSLT::warnings;
-        }
-
-      $_indent -= $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
+    if ($current_xml_node->getNodeType == $ATTRIBUTE_NODE) {
+      my $attribute = $current_xml_node->cloneNode(0);
+      $current_result_node->setAttributeNode($attribute);
+    } elsif (($current_xml_node->getNodeType == $COMMENT_NODE)
+    || ($current_xml_node->getNodeType == $PROCESSING_INSTRUCTION_NODE)) {
+      $parser->_add_node ($current_xml_node, $current_result_node);
+    } else {
+      $parser->_add_node ($current_xml_node, $current_result_node);
+      $parser->_evaluate_template ($xsl_node,
+				   $current_xml_node,
+				   $current_xml_selection_path,
+				   $current_result_node->getLastChild,
+                                   $variables, $oldvariables);
     }
-    $_indent -= $_indent_incr;
-  } else {
-    print " "x$_indent,"expected attribute \"select\" in <xsl:for-each>$/" if $XSLT::debug;
-    warn "expected attribute \"select\" in <xsl:for-each>$/" if $XSLT::warnings;
-  }
-
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _text {
@@ -1349,114 +1700,127 @@ sub _text {
   #appends a new Text node (with the specified text.)
   #
   #Return Value: the last child if it was a Text node or else the new Text node.
+  my ($parser, $xsl_node, $current_result_node) = @_;
 
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_result_node = shift;
+  print " "x$parser->{indent},"inserting text:$/" if $parser->{debug};
 
-  print " "x$_indent,"inserting text:$/" if $XSLT::debug;
+  $parser->{indent} += $parser->{indent_incr};
 
-  $_indent += $_indent_incr;
+    print " "x$parser->{indent},"stripping node to text:$/" if $parser->{debug};
 
-    print " "x$_indent,"stripping node to text:$/" if $XSLT::debug;
-
-    $_indent += $_indent_incr;
-      my $text = &__strip_node_to_text__ ($parser, $xsl_node);
-    $_indent -= $_indent_incr;
+    $parser->{indent} += $parser->{indent_incr};
+      my $text = $parser->__string__ ($xsl_node);
+    $parser->{indent} -= $parser->{indent_incr};
 
     if ($text) {
-      $parser->_move_node ($XSLT::xml->createTextNode ($text), $current_result_node);
+      $parser->_move_node ($parser->{xml}->createTextNode ($text), $current_result_node);
     } else {
-      print " "x$_indent,"nothing left..$/" if $XSLT::debug;
+      print " "x$parser->{indent},"nothing left..$/" if $parser->{debug};
     }
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _attribute {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
   
   my $name = $xsl_node->getAttribute ('name');
-  print " "x$_indent,"inserting attribute named \"$name\":$/" if $XSLT::debug;
+  print " "x$parser->{indent},"inserting attribute named \"$name\":$/" if $parser->{debug};
 
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
   if ($name) {
-    my $result = $XSLT::xml->createDocumentFragment;
+    my $result = $parser->{xml}->createDocumentFragment;
 
     $parser->_evaluate_template ($xsl_node,
 				 $current_xml_node,
 				 $current_xml_selection_path,
-				 $result);
+				 $result, $variables, $oldvariables);
 
-    $_indent += $_indent_incr;
-      my $text = &__strip_node_to_text__ ($parser, $result);
-    $_indent -= $_indent_incr;
+    $parser->{indent} += $parser->{indent_incr};
+      my $text = $parser->__string__ ($result);
+    $parser->{indent} -= $parser->{indent_incr};
 
     $current_result_node->setAttribute($name, $text);
+    $result->dispose();
   } else {
-    print " "x$_indent,"expected attribute \"name\" in <xsl:attribute>$/" if $XSLT::debug;
-    warn "expected attribute \"name\" in <xsl:attribute>$/" if $XSLT::warnings;
+    print " "x$parser->{indent},"expected attribute \"name\" in <$parser->{xsl_ns}attribute>$/" if $parser->{debug};
+    warn "expected attribute \"name\" in <$parser->{xsl_ns}attribute>$/" if $parser->{warnings};
   }
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
 sub _comment {
-  my $parser = shift;
-  my $xsl_node = shift;
-  my $current_xml_node = shift;
-  my $current_xml_selection_path = shift;
-  my $current_result_node = shift;
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
   
-  print " "x$_indent,"inserting comment:$/" if $XSLT::debug;
+  print " "x$parser->{indent},"inserting comment:$/" if $parser->{debug};
 
-  $_indent += $_indent_incr;
+  $parser->{indent} += $parser->{indent_incr};
 
-    my $result = $XSLT::xml->createDocumentFragment;
+    my $result = $parser->{xml}->createDocumentFragment;
 
     $parser->_evaluate_template ($xsl_node,
 				 $current_xml_node,
 				 $current_xml_selection_path,
-				 $result);
+				 $result, $variables, $oldvariables);
 
-    $_indent += $_indent_incr;
-      my $text = &__strip_node_to_text__ ($parser, $result);
-    $_indent -= $_indent_incr;
+    $parser->{indent} += $parser->{indent_incr};
+      my $text = $parser->__string__ ($result);
+    $parser->{indent} -= $parser->{indent_incr};
 
-    $parser->_move_node ($XSLT::xml->createComment ($text), $current_result_node);
+    $parser->_move_node ($parser->{xml}->createComment ($text), $current_result_node);
+    $result->dispose();
 
-  $_indent -= $_indent_incr;
+  $parser->{indent} -= $parser->{indent_incr};
 }
 
-######################################################################
-package XSLT;
-######################################################################
+sub _variable {
+  my ($parser, $xsl_node, $current_xml_node, $current_xml_selection_path,
+      $current_result_node, $variables, $oldvariables) = @_;
+  
+  my $varname = $xsl_node->getAttribute ('name');
+  
+  if ($varname) {
+    print " "x$parser->{indent},"definition of variable \$$varname:$/" if $parser->{debug};
 
-use strict;
+    $parser->{indent} += $parser->{indent_incr};
 
-BEGIN {
-  use Exporter ();
-  use vars qw( $VERSION @ISA @EXPORT @EXPORT_OK);
+      if ($$oldvariables{$varname}) {
+        # copy from parent-template
+        
+        $$variables{$varname} = $$oldvariables{$varname};
+        
+      } else {
+        # new variable definition
+        
+        my $value = $xsl_node->getAttribute ('select');
 
-  $VERSION = '0.20';
+        if (! $value) {
+          #tough case, evaluate content as template
 
-  @ISA         = qw( Exporter );
-  @EXPORT_OK   = qw( $Parser $debug $warnings);
+          $value = $parser->{xml}->createDocumentFragment;
 
-  use vars @EXPORT_OK;
-  $XSLT::Parser   = new XML::XSLTParser;
-  $XSLT::debug    = "";
-  $XSLT::warnings = "";
+          $parser->_evaluate_template ($xsl_node,
+				       $current_xml_node,
+				       $current_xml_selection_path,
+				       $value, $variables, $oldvariables);
+        }
+        
+        $$variables{$varname} = $value;
+      }
+
+    $parser->{indent} -= $parser->{indent_incr};
+  } else {
+    print " "x$parser->{indent},"expected attribute \"name\" in <$parser->{xsl_ns}param> or <$parser->{xsl_ns}variable>$/" if $parser->{debug};
+    warn "expected attribute \"name\" in <$parser->{xsl_ns}param> or <$parser->{xsl_ns}variable>$/" if $parser->{warnings};
+  }
 }
-
-use vars qw ( $xsl $xml $result $DOMparser $outputstring);
 
 1;
 
 __END__
+
 
 =head1 NAME
 
@@ -1464,39 +1828,68 @@ XML::XSLT - A perl module for processing XSLT
 
 =head1 SYNOPSIS
 
-use XML::XSLT;
+ use XML::XSLT;
 
-$XSLT::Parser->open_project ($xmlfile, $xslfile);
-$XSLT::Parser->process_project;
-$XSLT::Parser->print_result;
+ my $parser = XML::XSLT->new ($xslfile, $xslflag, warnings => "Active");
+
+ $parser->transform_document ($xmlfile, $xmlflag);
+ $parser->print_result;  
+
+ $parser->dispose ();
 
 	The variables $xmlfile and $xslfile are filenames, e.g. "filename",
-        or regular Perl filehandles, pass those with *FILEHANDLE.
+        regular Perl filehandles, pass those with *FILEHANDLE, or Perl streams.
 
-# Alternatives for open_project()
+        After dispose, the parser object is destroyed. The result thus also!
 
-$XSLT::Parser->open_project ($xmlstring, $xslstring, "STRING", "STRING");
+# Alternative sources
 
-	The variables $xmlstring and $xslstring are regular Perl scalars
-        variables or references to these, pass the latter with \$string.
+The stylesheets and the documents may be passed as filenames, file handles
+regular strings, string references or DOM-trees. The source type is identified
+by the flags "FILE" (filename and -handle), "STRING" (string and string ref)
+and "DOM" (DOM-tree). For example:
+ 
+ my $parser = XML::XSLT->new ($xslstring, "STRING", warnings => "Active");
 
-$XSLT::Parser->open_project ($xmldom, $xsldom, "DOM", "DOM");
-
-	The variables $xmldom and $xsldom are XML::DOM trees. The Document Node
-        should be passed here.
-
-# String, file and DOM input can be intermingled
-
-$XSLT::Parser->open_project ($xmlfile_or_handle, $xslstring_or_ref, "FILE", "STRING");
-
-$XSLT::Parser->open_project ($xmlDOMtree, $xslfile_or_handle, "DOM", "FILE");
+ $parser->transform_document ($xmldom_rootnode, "DOM");
+ $parser->print_result;
 
 # Alternatives for print_result()
 
-$XSLT::Parser->print_result($outputfile);
+Instead of printing to STDOUT, a filename or file can be passed to
+print_result():
 
-	The variable $outputfile is a filename, e.g. "filename" or a regular
+ $parser->print_result($outputfile);
+
+        The variable $outputfile is a filename, e.g. "filename" or a regular
         Perl filehandle. Pass the latter with *FILEHANDLE.
+
+Instead of printing at all, the result can be requested as a string or a DOM
+tree as well with:
+
+ $parser->result_string;
+ 
+ $parser->result_tree;
+
+# Reusable parser objects
+
+This approach attaches one stylesheet to one parser object. The stylesheet can
+be applied to multiple documents and multiple parser objects can co-exist:
+
+ my $parser1 = XML::XSLT->new ($xslfile1, $xslflag1, warnings => "Active");
+ my $parser2 = XML::XSLT->new ($xslfile2, $xslflag2, warnings => "Active");
+
+ $parser1->transform_document ($xmlfile1, $xmlflag1);
+ $parser1->print_result ($xmlout1);
+ $parser1->transform_document ($xmlfile2, $xmlflag2);
+ $parser1->print_result ($xmlout2);  
+ $parser2->transform_document ($xmlfile1, $xmlflag1);
+ $parser2->print_result ($xmlout3);  
+ $parser2->transform_document ($xmlfile2, $xmlflag2);
+ $parser2->print_result ($xmlout4);  
+
+This way the stylesheet-file does not have to be parsed all over again, but is
+reused each time.
 
 =head1 DESCRIPTION
 
@@ -1545,7 +1938,7 @@ Not supported yet.
 
 =head2 xsl:call-template		yes
 
-Takes attribute 'name' which selects xsl:template by name.
+Takes attribute 'name' which selects xsl:template's by name.
 
 Not supported yet:
 - xsl:sort and xsl:with-param in content
@@ -1555,9 +1948,9 @@ Not supported yet:
 Tests sequentially all xsl:whens until one succeeds or
 until an xsl:otherwise is found. Limited test support, see xsl:when
 
-=head2 xsl:comment			experimental
+=head2 xsl:comment			yes
 
-It is implemented, but it does not appear in the result
+Supported.
 
 =head2 xsl:copy				partially
 
@@ -1627,9 +2020,9 @@ Supported.
 
 Not supported yet.
 
-=head2 xsl:param			no
+=head2 xsl:param			experimental
 
-Not supported yet.
+Synonym for xsl:variable (currently). See xsl:variable for support.
 
 =head2 xsl:preserve-space		no
 
@@ -1649,7 +2042,9 @@ Not supported yet. No whitespace is stripped.
 
 =head2 xsl:stylesheet			limited
 
-Has to be present. None of the attributes supported yet.
+Minor namespace support: other namespace than 'xsl:' for xsl-commands
+is allowed if xmlns-attribute is present. xmlns URL is verified.
+Other attributes are ignored.
 
 =head2 xsl:template			limited
 
@@ -1665,9 +2060,9 @@ Not supported yet:
 Not supported yet:
 - attribute 'disable-output-escaping'
 
-=head2 xsl:transform			no
+=head2 xsl:transform			limited
 
-Not supported yet.
+Synonym for xsl:stylesheet
 
 =head2 xsl:value-of			limited
 
@@ -1687,14 +2082,21 @@ Inserts attribute or element values. Limited support:
 
 <xsl:value-of select="@attr"/>
 
+<xsl:value-of select="text()"/>
+
+<xsl:value-of select="processing-instruction()"/>
+
+<xsl:value-of select="comment()"/>
+
 and combinations of these;
 
 Not supported yet:
 - attribute 'disable-output-escaping'
 
-=head2 xsl:variable			no
+=head2 xsl:variable			experimental
 
-Not supported yet.
+Very limited. It should be possible to define a variable and use it with
+&lt;xsl:value select="$varname" /&gt; within the same template.
 
 =head2 xsl:when				limited
 
@@ -1708,13 +2110,13 @@ Only inside xsl:choose. Limited test support:
 
 <xsl:when test="path/[elem='value']">
 
-<xsl:when test="path/elem">
+<xsl:when test="path">
 
-<xsl:when test="path/@attr">
+path is supported to the same extend as with xsl:value-of
 
-=head2 xsl:with-param			no
+=head2 xsl:with-param			experimental
 
-Not supported yet.
+It is currently not functioning. (or is it?)
 
 =head1 SUPPORT
 

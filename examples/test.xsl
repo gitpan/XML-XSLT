@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<xsl:stylesheet xmlns:xsl="http://www.w3.org/XSL/Transform/1.0">
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
   <xsl:template match='AGENDA'><!-- AGENDA -->
 
@@ -14,7 +14,17 @@
 <A>
 <xsl:attribute name="HREF"><xsl:value-of select="MAAND/@NAAM"/></xsl:attribute>
 </A>
+
 <xsl:comment>Maand naam:<xsl:value-of select="MAAND/@NAAM"/></xsl:comment>
+
+<xsl:variable name="maandnaam"><xsl:value-of select="MAAND/@NAAM"/></xsl:variable>
+Maand="<xsl:value-of select="$maandnaam"/>"
+
+<A>
+<xsl:for-each select="@*">
+  <xsl:copy />
+</xsl:for-each>
+</A>
         <!--xsl:apply-templates//MAAND -->
 
         </TABLE>

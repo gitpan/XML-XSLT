@@ -1,5 +1,5 @@
 <?xml version="1.0"?>
-<xsl:stylesheet xmlns:xsl="http://www.w3.org/XSL/Transform/1.0">
+<xsl:stylesheet version="1.0" xmlns:xsl="http://www.w3.org/1999/XSL/Transform">
 
   <!--xsl:include href="cml.xsl"/-->
   <xsl:include href="http://www.sci.kun.nl/sigma/Persoonlijk/egonw/xslt/examples/cml.xsl"/>
@@ -19,10 +19,13 @@
             <A NAME="{@NAME}"><xsl:value-of select='@NAME'/></A>
           </xsl:when>
         </xsl:choose>
+
         <!--xsl:apply-templates select="MAAND"/--><!-- /MAAND -->
         <!--xsl:value-of select="MAAND"/--><!-- /MAAND -->
         <!--xsl:call-template name="agenda"/--><!-- /MAAND -->
-        <xsl:copy-of select="MAAND/PUNT"/><!-- /MAAND -->
+
+        <!--xsl:copy-of select="MAAND/PUNT"/-->
+        <xsl:copy select="MAAND/PUNT"/>
 
         </TABLE>
       </BODY>
