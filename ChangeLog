@@ -1,25 +1,38 @@
-2000-06-16  Mark A. Hershberger  <mah@everybody.org>
-
-	* website/: moved the *.html files to the website directory so
-	that we could maintain the sourceforge website in cvs.
-
-	* XSLT.pm: Removed un-needed BEGIN{} section.  This was mostly
-	there to test for the proper version of XML::DOM, but this
-	function is more properly performed at the time of installation
-	and not at run time.
-
-2000-06-28  Bron Gondwana  <perlcode@brong.net>
-
-	* XSLT.pm: Removed attempt to call dispose on DOMparser as this
-	doesn't actually have a dispose method.  Incremented version
-	number to 0.23.
-
 2000-07-11  Bron Gondwana  <perlcode@brong.net>
 
-        * XSLT.pm: fixed another bug in _value_of that tested for truth
-        rather than defined-ness of a value.  It now deals correctly
-	with zeros in yet another case!
+        * XSLT.pm (_value_of): fixed another bug that tested for truth
+	rather than defined-ness of a value.  It now deals correctly with
+	zeros in yet another case!
 
 	* XSLT.pm: Changed all the calls to getNodeValue to check that
 	the output node actually has the specified attribute before
 	attempting the sub method call.  Incremented version to 0.24.
+
+2000-07-03  Mark A. Hershberger  <mah@everybody.org>
+
+	* XSLT.pm: implementing recursive includes
+
+	* xslt-parser: replaced manual argument processing with
+	Getopt::Std
+	
+2000-07-02  Mark A. Hershberger  <mah@everybody.org>
+
+	* XSLT.pm (__open_by_filename): Got the read-by-url-even-file
+	to work.
+
+	* xslt-parser: updated to use the new interface.
+
+	* XSLT.pm: More interface rearranging.  Moved from hashref to
+	arrayref.  Moved namespace constants to `use constant'. etc. etc.
+	
+
+2000-06-29  Mark A. Hershberger  <mah@everybody.org>
+
+	* XSLT.pm: Lots of documenting and interface rearranging.
+
+2000-06-28  Bron Gondwana  <perlcode@brong.net>
+
+	* XSLT.pm (dispose): Removed attempt to call dispose on DOMparser
+	as this doesn't actually have a dispose method.  Incremented
+	version number to 0.23.
+

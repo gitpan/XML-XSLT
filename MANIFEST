@@ -1,8 +1,7 @@
+t/zeroes.t
 ChangeLog
-MANIFEST
 Makefile.PL
 README
-XSLT.pm
 examples/91-22-5.cml
 examples/91-22-5.cml.xml
 examples/91-22-5.xml
@@ -33,5 +32,6 @@ examples/test2.xsl
 examples/xmlspec.xsl
 examples/xpath.xsl
 examples/xslt.xsl
-t/00-load.t
+XSLT.pm
 xslt-parser
+MANIFEST
