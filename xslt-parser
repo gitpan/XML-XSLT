@@ -1,6 +1,6 @@
 #!/usr/local/bin/perl -w
 
-# $Id: xslt-parser,v 1.7 2000/07/27 22:16:55 hexmode Exp $
+# $Id: xslt-parser,v 1.8 2001/01/23 03:49:18 hexmode Exp $
 
 use strict;
 use XML::XSLT;
@@ -65,7 +65,9 @@ my $usage = "Usage: $0 [options] <project>
   -n	     don't print content-type
   -s <file>  use <file> instead of <project>.xsl as template
   -w	     turns warnings on\n";
-getopts('cdnws:', \%opt) || die $usage;
+getopts('cdnws:h', \%opt) || die $usage;
+
+die $usage if $opt{h};
 
 ## global vars ##
 my $noweb = $opt{n} || 0;
@@ -73,11 +75,22 @@ my $debug = $opt{d} || 0;
 my $warnings = $opt{w} || 0;
 my $project = shift || die $usage;
 my $xslfile = $opt{'s'} || "$project.xsl";
-my $xmlfile = "$project.xml";
+my $xmlfile = $project;
 
 my $xslt = XML::XSLT->new (Source   => $xslfile,
 			   debug    => $debug,
 			   warnings => $debug);
+
+if (! -f $xslfile) {
+  die "$xslfile does not exist.";
+}
+
+if (! -f $xmlfile) {
+  $xmlfile .= ".xml";
+  if (! -f $xmlfile) {
+    die "$xmlfile does not exist."
+  }
+}
 
 print STDERR qq{Debug   : "$debug"
 NoWeb   : "$noweb"

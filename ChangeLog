@@ -1,3 +1,23 @@
+2001-01-22  Mark A. Hershberger  <mah@everybody.org>
+
+	* lib/XML/XSLT.pm (__get_first_element):
+	Better code to find the first /Element/ of a stylesheet rather than
+	  the first Child of the XML::DOM object
+
+	* lib/XML/XSLT.pm (__set_xsl_output):
+	Fix up xsl:output handling of HTML and XML types
+	
+	* lib/XML/XSLT.pm:
+	Document support for xsl:output.
+	Document support with xsl:call-template.
+
+	
+2001-01-15  Mark A. Hershberger  <mah@everybody.org>
+
+	* lib/XML/XSLT.pm : Release 0.30 didn't work with CPAN.  Moving
+	XML::XSLT::DOM::TextDOE package declaration as I suspect that it
+	is the problem.
+
 2000-07-11  Bron Gondwana  <perlcode@brong.net>
 
         * XSLT.pm (_value_of): fixed another bug that tested for truth

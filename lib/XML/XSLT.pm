@@ -21,6 +21,7 @@ package XML::XSLT;
 use strict;
 
 use XML::DOM 1.25;
+#use XML::Path;
 use LWP::Simple qw(get);
 use URI;
 use Cwd;
@@ -33,7 +34,7 @@ use constant NS_XHTML        => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.31';
+$VERSION = '0.32';
 
 @ISA         = qw( Exporter );
 @EXPORT_OK   = qw( &transform &serve );
@@ -99,7 +100,9 @@ sub serve {
   if($args{clean}) {
     eval {require HTML::Clean};
 
-    unless($@) {
+    if($@) {
+      CORE::warn("Not passing through HTML::Clean -- install the module");
+    } else {
       my $hold = HTML::Clean->new(\$ret);
       $hold->strip;
       $ret = ${$hold->data};
@@ -284,10 +287,12 @@ sub __preprocess_stylesheet {
 
   $self->debug("preprocessing stylesheet...");
 
-  $self->{TOP_XSL_NODE} = $self->{XSL_DOCUMENT}->getFirstChild;
+  $self->__get_first_element;
   $self->__extract_namespaces;
   $self->__get_stylesheet;
 
+# Why is this here when __get_first_element does, apparently, the same thing?
+# Because, in __get_stylesheet we warp the document.
   $self->{TOP_XSL_NODE} = $self->{XSL_DOCUMENT}->getFirstChild;
   $self->__expand_xsl_includes;
   $self->__extract_top_level_variables;
@@ -336,39 +341,54 @@ sub __get_stylesheet {
 }
 
 # private auxiliary function #
+sub __get_first_element {
+  my ($self) = @_;
+  my $node = $self->{XSL_DOCUMENT}->getFirstChild;
+
+  $node = $node->getNextSibling
+    until ref $node eq 'XML::DOM::Element';
+  $self->{TOP_XSL_NODE} = $node;
+}
+
+# private auxiliary function #
 sub __extract_namespaces {
   my ($self) = @_;
 
-  foreach my $attribute ($self->{TOP_XSL_NODE}->getAttributes->getValues) {
-    my ($pre, $post) = split(":", $attribute->getName, 2);
-    my $value = $attribute->getValue;
+  my $attr = $self->{TOP_XSL_NODE}->getAttributes;
+  if(defined $attr) {
+    foreach my $attribute ($self->{TOP_XSL_NODE}->getAttributes->getValues) {
+      my ($pre, $post) = split(":", $attribute->getName, 2);
+      my $value = $attribute->getValue;
 
-    # Take care of namespaces
-    if($pre eq 'xmlns' and not defined $post) {  
-      $self->{DEFAULT_NS} = '';
+      # Take care of namespaces
+      if ($pre eq 'xmlns' and not defined $post) {  
+	$self->{DEFAULT_NS} = '';
 
-      $self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{namespace} = $value;
-      $self->{XSL_NS} = ''
-	if $value eq NS_XSLT;
-      $self->debug("Namespace `" . $self->{DEFAULT_NS} . "' = `$value'");
-    } elsif($pre eq 'xmlns') {
-      $self->{NAMESPACE}->{$post}->{namespace} = $value;
-      $self->{XSL_NS} = $post . ':'
-	if $value eq NS_XSLT;
-      $self->debug("Namespace `$post:' = `$value'");
-    }
+	$self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{namespace} = $value;
+	$self->{XSL_NS} = ''
+	  if $value eq NS_XSLT;
+	$self->debug("Namespace `" . $self->{DEFAULT_NS} . "' = `$value'");
+      } elsif ($pre eq 'xmlns') {
+	$self->{NAMESPACE}->{$post}->{namespace} = $value;
+	$self->{XSL_NS} = $post . ':'
+	  if $value eq NS_XSLT;
+	$self->debug("Namespace `$post:' = `$value'");
+      } else {
+	$self->{DEFAULT_NS} = '';
+      }
 
-    # Take care of versions
-    if ($pre eq "version" and not defined $post) {
-      $self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{version} = $value;
-      $self->debug("Version for namespace `" . $self->{DEFAULT_NS} .
-		   "' = `$value'");
-    } elsif ($pre eq "version") {
-      $self->{NAMESPACE}->{$post}->{version} = $value;
-      $self->debug("Version for namespace `$post:' = `$value'");
+      # Take care of versions
+      if ($pre eq "version" and not defined $post) {
+	$self->{NAMESPACE}->{$self->{DEFAULT_NS}}->{version} = $value;
+	$self->debug("Version for namespace `" . $self->{DEFAULT_NS} .
+		     "' = `$value'");
+      } elsif ($pre eq "version") {
+	$self->{NAMESPACE}->{$post}->{version} = $value;
+	$self->debug("Version for namespace `$post:' = `$value'");
+      }
     }
   }
-  if(not defined $self->{DEFAULT_NS}) {
+  if (not defined $self->{DEFAULT_NS}) {
     ($self->{DEFAULT_NS}) = split(':', $self->{TOP_XSL_NODE}->getTagName);
   }
   $self->debug("Default Namespace: `" . $self->{DEFAULT_NS} . "'");
@@ -537,28 +557,26 @@ sub __set_xsl_output {
     $self->{MEDIA_TYPE} = $media->getNodeValue if defined $media;
     $self->{METHOD} = $method->getNodeValue if defined $method;
 
-    if ($self->{METHOD} eq 'xml') {
-      my $omit = $attribs->getNamedItem('omit-xml-declaration');
-      $self->{OMIT_XML_DECL} = defined $omit->getNodeValue ?
-	$omit->getNodeValue : 'no';
+    my $omit = $attribs->getNamedItem('omit-xml-declaration');
+    $self->{OMIT_XML_DECL} = defined $omit->getNodeValue ?
+      $omit->getNodeValue : 'no';
 
-      if ($self->{OMIT_XML_DECL} ne 'yes' && $self->{OMIT_XML_DECL} ne 'no') {
-	$self->warn(qq{Wrong value for attribute "omit-xml-declaration" in\n\t} .
-		    $self->{XSL_NS} . qq{output, should be "yes" or "no"});
-      }
+    if ($self->{OMIT_XML_DECL} ne 'yes' && $self->{OMIT_XML_DECL} ne 'no') {
+      $self->warn(qq{Wrong value for attribute "omit-xml-declaration" in\n\t} .
+		  $self->{XSL_NS} . qq{output, should be "yes" or "no"});
+    }
 
-      if (! $self->{OMIT_XML_DECL}) {
-	my $output_ver = $attribs->getNamedItem('version')->getNodeValue;
-	my $output_enc = $attribs->getNamedItem('encoding')->getNodeValue;
-	$self->{OUTPUT_VERSION} = $output_ver->getNodeValue
-	  if defined $output_ver;
-	$self->{OUTPUT_ENCODING} = $output_enc->getNodeValue
-	  if defined $output_enc;
+    if (! $self->{OMIT_XML_DECL}) {
+      my $output_ver = $attribs->getNamedItem('version')->getNodeValue;
+      my $output_enc = $attribs->getNamedItem('encoding')->getNodeValue;
+      $self->{OUTPUT_VERSION} = $output_ver->getNodeValue
+	if defined $output_ver;
+      $self->{OUTPUT_ENCODING} = $output_enc->getNodeValue
+	if defined $output_enc;
 
-	if (not $self->{OUTPUT_VERSION} || not $self->{OUTPUT_ENCODING}) {
-	  $self->warn(qq{Expected attributes "version" and "encoding" in\n\t} .
-	    $self->{XSL_NS} . "output");
-	}
+      if (not $self->{OUTPUT_VERSION} || not $self->{OUTPUT_ENCODING}) {
+	$self->warn(qq{Expected attributes "version" and "encoding" in\n\t} .
+		    $self->{XSL_NS} . "output");
       }
     }
     my $doctype_public = $attribs->getNamedItem('doctype-public');
@@ -611,8 +629,6 @@ sub transform {
   my $root_template = $self->_match_template("match", '/', 1, '');
   croak "Can't find root template"
     unless defined $root_template;
-
-
 
   %topvariables = (%{$self->{VARIABLES}}, %topvariables);
   $self->_evaluate_template ( $root_template,            # starting template: the root template
@@ -740,7 +756,7 @@ sub print_output {
   if ($mime) {
     print "Content-type: $self->{MEDIA_TYPE}\n\n";
 
-    if ($self->{METHOD} eq 'xml') {
+    if ($self->{METHOD} eq 'xml' || $self->{METHOD} eq 'html') {
       if (($self->{OMIT_XML_DECL} eq 'no') && $self->{OUTPUT_VERSION}
 	  && $self->{OUTPUT_ENCODING}) {
 	print "<?xml version=\"$self->{OUTPUT_VERSION}\" encoding=\"$self->{OUTPUT_ENCODING}\"?>\n";
@@ -831,7 +847,7 @@ sub __open_document {
       $doc = undef;
     }
   };
-  die "Error in parsing: $@" if $@;
+  die "Error while parsing: $@\n". $args{Source} if $@;
 
   return $doc;
 }
@@ -1016,6 +1032,7 @@ sub _evaluate_template {
   die "No Template"
     unless defined $template && ref $template;
   $template->normalize;
+
   foreach my $child ($template->getChildNodes) {
     my $ref = ref $child;
 
@@ -1231,8 +1248,8 @@ sub _select_template {
 sub _evaluate_element {
   my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
       $current_result_node, $variables, $oldvariables) = @_;
-
   my ($ns, $xsl_tag) = split(':', $xsl_node->getTagName);
+
   if(not defined $xsl_tag) {
     $xsl_tag = $ns;
     $ns = $self->{DEFAULT_NS};
@@ -1243,6 +1260,7 @@ sub _evaluate_element {
   $self->{INDENT} += $self->{INDENT_INCR};
 
   if ($ns eq $self->{XSL_NS}) {
+    my @attributes = $xsl_node->getAttributes->getValues;
     $self->debug(qq{This is an xsl tag});
     if ($xsl_tag eq 'apply-templates') {
       $self->_apply_templates ($xsl_node, $current_xml_node,
@@ -1416,8 +1434,7 @@ sub _value_of {
 
     if ($text ne '') {
       my $node = $self->{XML_DOCUMENT}->createTextNode ($text);
-      if ($xsl_node->getAttribute ('disable-output-escaping') eq 'yes')
-        {
+      if ($xsl_node->getAttribute ('disable-output-escaping') eq 'yes') {
         $self->debug("disabling output escaping");
         bless $node,'XML::XSLT::DOM::TextDOE' ;
       }
@@ -1838,7 +1855,7 @@ sub _process_with_params {
   my ($self, $xsl_node, $current_xml_node, $current_xml_selection_path,
       $variables, $params) = @_;
 
-  my @params = $xsl_node->getElementsByTagName("$self->{XSL_NS}with-param");
+  my @params = $xsl_node->getElementsByTagName($self->{XSL_NS}. "with-param");
   foreach my $param (@params) {
     my $varname = $param->getAttribute('name');
 
@@ -1855,6 +1872,9 @@ sub _process_with_params {
 				     $value, $variables, {} );
 	$$params{$varname} = $value;
 
+      } else {
+	# *** FIXME - should evaluate this as an expression!
+	$$params{$varname} = $value;
       }
     } else {
       $self->warn(q{Expected attribute "name" in <} .
@@ -1870,15 +1890,14 @@ sub _call_template {
 
   my $params={};
   my $newvariables = {%$variables};
-
   my $name = $xsl_node->getAttribute('name');
-  
+
   if ($name) {
     $self->debug("calling template named \"$name\"");;
 
     $self->_process_with_params ($xsl_node, $current_xml_node,
 				   $current_xml_selection_path,
-				   $current_result_node, $variables, $params);
+				   $variables, $params);
 
     $self->{INDENT} += $self->{INDENT_INCR};
     my $template = $self->_match_template ("name", $name, 0, '');
@@ -2387,8 +2406,11 @@ Not supported yet.
 
 Takes attribute 'name' which selects xsl:template's by name.
 
+Weak support:
+- xsl:with-param (select attrib not supported)
+
 Not supported yet:
-- xsl:sort and xsl:with-param in content
+- xsl:sort
 
 =head2 xsl:choose			yes
 
@@ -2461,9 +2483,12 @@ Not supported yet.
 
 Supported.
 
-=head2 xsl:output			no
+=head2 xsl:output			limited
 
-Not supported yet.
+Only the initial xsl:output element is used.  The "text" output method
+is not supported, but shouldn't be difficult to implement.  Only the
+"doctype-public", "doctype-system", "omit-xml-declaration", "method",
+and "encoding" attributes have any support.
 
 =head2 xsl:param			experimental
 
@@ -2612,11 +2637,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.2 $
+Revision: $Revision: 1.4 $
    Label: $Name:  $
 
 Last Chg: $Author: hexmode $ 
-      On: $Date: 2001/01/16 03:17:35 $
+      On: $Date: 2001/01/23 04:03:02 $
 
-  RCS ID: $Id: XSLT.pm,v 1.2 2001/01/16 03:17:35 hexmode Exp $
+  RCS ID: $Id: XSLT.pm,v 1.4 2001/01/23 04:03:02 hexmode Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $
