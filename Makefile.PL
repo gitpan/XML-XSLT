@@ -1,3 +1,5 @@
+#!/usr/local/bin/perl
+
 use ExtUtils::MakeMaker;
 
 @extras = ();
@@ -11,7 +13,7 @@ WriteMakefile(
               NAME	=> 'XML::XSLT',
               dist      => {COMPRESS => 'gzip', SUFFIX => '.gz'},
               VERSION_FROM => 'XSLT.pm',
-              PREREQ_PM => { XML::Parser => '2.26', XML::DOM => '1.25' },
+              PREREQ_PM => { XML::Parser => '2.23', XML::DOM => '1.25' },
 	      PM => { 'XSLT.pm' => '$(INST_LIBDIR)/XSLT.pm' },
 	      @extras
              );

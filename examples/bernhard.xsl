@@ -1,10 +1,15 @@
- <xsl:sub-template match="SCHADSTOFFBELASTUNG">
+<?xml version="1.0"?>
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/XSL/Transform/1.0">
+ <xsl:template match="SCHADSTOFFBELASTUNG">
    <BLOCKQUOTE>
 
    <TT><B>Belastungsgebiet(e):</B></TT>
-   <xsl:for-each select="BELASTUNGSGEBIET">
-        <TT><xsl:value-of select="."/></TT><BR/>
-   </xsl:for-each>
+   <xsl:apply-templates/>
 
    </BLOCKQUOTE>
- </xsl:sub-template>
+ </xsl:template>
+
+ <xsl:template match="BELASTUNGSGEBIET">
+        <TT><xsl:value-of select="."/></TT><BR/>
+ </xsl:template>
+</xsl:stylesheet>

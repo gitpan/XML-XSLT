@@ -1,0 +1,286 @@
+<html>
+<head>
+  <title>XML::XSLT Homepage</title>
+  <style>
+    A { color: orange }
+    A.ID { color: navy }
+  </style>
+</head>
+
+<body bgcolor="white">
+<table>
+<tr><td width="200" valign=top>
+  <P>
+  <table bgcolor="silver" border="0">
+    <tr><td rowspan="9" bgcolor="navy" width="5">&nbsp;
+    <tr><td><a href="#support"><li><font color="black" face="arial,cotton">Supported&nbsp;commands</font></a><br>
+    <tr><td><a href="#action"><li><font color="black" face="arial,cotton">Action!</font></a><br>
+    <tr><td><a href="#options"><li><font color="black" face="arial,cotton">Script options</font></a><br>
+    <tr><td><a href="#download"><li><font color="black" face="arial,cotton">Download</font></a><br>
+    <tr><td><a href="#bug"><li><font color="black" face="arial,cotton">Bugs</font></a><br>
+    <tr><td><a href="#next"><li><font color="black" face="arial,cotton">What's Next</font></a><br>
+    <tr><td><a href="#links"><li><font color="black" face="arial,cotton">Links</font></a><br>
+  </table>
+  <P>
+    Send comment and bugs to:<br>
+    <center>
+      <a href="mailto:gjosten@sci.kun.nl">Geert Josten</a> and<br>
+      <a href="mailto:egonw@sci.kun.nl">Egon Willighagen</a>
+    </center>
+  <p>
+<!--    Send me notifications of
+    new versions. My email is:<br>
+    <form ACTION="/cgi-bin-sigma/persoonlijk/egonw/xslt/email.pl" METHOD="POST">
+      <input TYPE="text" NAME="email">
+    </form> -->
+
+  <p><i>last modified on December 17th 1999.</i>
+  <p><hr color="navy" width="80%" align="center">
+  <p>
+  <a href="http://www.garshol.priv.no/download/xsa/">XSA</a> doc:
+   <a href="xslt-parser.xsa">xslt-parser.xsa</a>.
+</td>
+<td>
+  <table bgcolor="black" width="100%" border="0">
+    <tr><td align="center"><h1><font color="white" face="arial,cotton">XML::XSLT Homepage</font></h1>
+  </table>
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="xslt">XSLT</a></font></h3>
+
+  <p>You wrote some XML, and have a XSL Template. You want
+  to use this on your website, but want to use Perl with your webserver.
+  No Problem!
+
+  <ul>
+    <p><i>Remember that this project is Work in Progress! Rome wasn't build in 
+    one day! Any comment is welcome! Any programming effort as well! This
+    modules *is* great stuff, but it isn't finished yet!</i>
+    <p align="right"><i>Egon</i></P>
+  </ul>
+
+  <p>XML::XSLT will 
+  convert the XML doc on basis of the template. It is written in Perl
+  and works. Not all xsl commands are implemented yet. Nor is it fast. But meanwhile
+  it works: watch it
+  <a href="/cgi-bin-sigma/persoonlijk/egonw/xslt/action/xslt-parser?agenda">in action</a>.
+  At this moment we need a lot of input. So try this script and give us
+  your comment on it. Missing/needed xsl elements, bugs, anything...
+  
+  <p>This document gives some explanation on this project. Other
+  Stuff to read is the Specification of XSLT and the
+  XSL(T)-by-example page (see <a href="#links">links</a>). Below, given 
+  is a list of XSLT-command's that are supported.
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="support">Supported XSLT commands</a></font></h3>
+  
+  <!--p>At this moment the xslt-parser commands are out of focus with the
+   XSL-T draft. The stylesheet files it accepts are not even valid XML 
+   conform the XSL Working Draft. At this moment at least.
+  <P>Each element the script encounters that doesn't start with xsl: (or
+   are in the xsl namespace) are regarded to be markup and handled as is.
+   But from version 0.11 the module accepts the &lt;xsl:stylesheet&gt; command
+   so valid XSL files will be accepted.-->
+  
+  <P><table width="100%" border="1">
+    <tr bgcolor="black">
+      <th align="center"><font color="white">command</font></th>
+      <th align="center"><font color="white">supported</font></th>
+      <th align="center"><font color="white">comment</font></th>
+    </tr>
+    <tr>
+      <td align="center">xsl:stylesheet</td>
+      <td align="center">limited</td>
+      <td align="center">Just has to be present</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:template</td>
+      <td align="center">limited</td>
+      <td align="center">attributes match and name are supported to some extend</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:sub-template</td>
+      <td align="center">depricated!</td>
+      <td align="center">this used to implement nesting of template
+	instead of the use of apply-templates</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:apply-templates</td>
+      <td align="center">limited</td>
+      <td align="center">attribute select is supported as far as xsl:value-of
+       supports path selections</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:call-template</td>
+      <td align="center">yes</td>
+      <td align="center">takes attribute name which selects xsl:template by name</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:include</td>
+      <td align="center">yes</td>
+      <td align="center">takes attribute href, which can be relative-local
+       absolute-local as well as an URL (preceded by identifier http:)</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:value-of</td>
+      <td align="center">limited</td>
+      <td align="center">attribute selection, element values.
+        Examples:<br>
+	&lt;xsl:value-of select="."/&gt;
+	&lt;xsl:value-of select="/root-elem"/&gt;
+	&lt;xsl:value-of select="elem"/&gt;
+	&lt;xsl:value-of select="//elem"/&gt;
+	&lt;xsl:value-of select="elem[n]"/&gt;
+	&lt;xsl:value-of select="//elem[n]"/&gt;
+	&lt;xsl:value-of select="@attr"/&gt;
+	and combinations of these;
+    </tr>
+    <tr>
+      <td align="center">xsl:for-each</td>
+      <td align="center">no</td>
+      <td align="center">is it needed?</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:choose</td>
+      <td align="center">limited</td>
+      <td align="center">tests sequentially all xsl:whens until one succeeds or
+       until an xsl:otherwise is found.</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:when</td>
+      <td align="center">limited</td>
+      <td align="center">Example:<br>
+        &lt;xsl:when test="@attr='value'"&gt;</td>
+        &lt;xsl:when test="elem='value'"&gt;</td>
+        &lt;xsl:when test="path/[@attr='value']"&gt;</td>
+        &lt;xsl:when test="path/[elem='value']"&gt;</td>
+        &lt;xsl:when test="path/elem"&gt;</td>
+        &lt;xsl:when test="path/@attr"&gt;</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:otherwise</td>
+      <td align="center">yes</td>
+      <td align="center">&nbsp;</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:output</td>
+      <td align="center">no</td>
+      <td align="center">will be added if anyone needs it</td>
+    </tr>
+    <tr>
+      <td align="center">xsl:processing-instruction</td>
+      <td align="center">yes</td>
+      <td align="center">&nbsp</td>
+    </tr>
+  </table>
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="action">Action!</a></font></h3>
+  
+  <p>Oke, let's see it work. The script takes a project name
+  &lt;project&gt;. The files &lt;project&gt;.xml and &lt;project&gt;.xsl are
+  read and converted to an internal object tree with XML::DOM. Then the 
+  XSL template is parsed against the XML tree, which results in a new doc 
+  that is redirected to STDOUT. That's all. 
+  
+  <p>Ofcourse, it need not be HTML. With XSLT you can convert any XML document
+  with any XSL doc you like.
+
+  <p><b>NB!</b> These are the updated examples. They only work with version
+  0.13 or higher.
+
+  <p>This is the CML project:
+  <ul>
+    <li>This project makes old CML files of the 
+    <a href="http://www.sci.kun.nl/sigma/Chemisch/Woordenboek/">Dictionary
+    on Organic Chemistry</a> conform the newest CML DTD.
+    <li><a href="examples/91-22-5.cml">91-22-5.cml</a> (old cml file)
+    <li><a href="examples/cml2cml.xsl">cml2cml.xsl</a> (for cml to cml conversion)
+    <li>resulting <a href="examples/91-22-5.xml">91-22-5.xml</a>
+    <li>Please note that is you use IE 5.0 to view the result you
+    it gets parsed by the IE XSL parser for a XML2HTML conversion
+    due to the xsl stylesheet below. If so, use right mouse button
+    and <i>view source</i> to see the underlying xml file when viewing
+    the xml file with the stylesheet.
+    <li><a href="examples/cml.xsl">cml.xsl</a>
+    <li>The rest of the new CML files are served at the Dictionary
+    on Organic Chemistry project as Physical Properties
+    (<a href="http://www.sci.kun.nl/cgi-bin-woc/view?azijnzuur">example</a>)
+    and at <a href="http://www.xmltree.com/resource/detail.cfm/DDC/547/L/3/ResourceID/161">xmltree.com</a>.
+  </ul>  
+
+  <p>The Agenda project:
+  <ul>
+    <li><a href="examples/agenda.dtd">agenda.dtd</a>
+    <li><a href="examples/agenda.xml">agenda.xml</a>
+    <li><a href="examples/agenda.xsl">agenda.xsl</a>
+    <li><a href="examples/agenda.html">agenda.html</a>
+  </ul>
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="options">Script options</a></font></h3>
+
+  <p>The script can be used as an CGI script, but also as a command-line
+  utility. Also accepts a XSL Template other than &lt;project&gt;.xsl. 
+  These behaviours are selected with some options. Run <i>xslt-parser</i> 
+  without options or parameters at the commandline to view its syntax.
+
+  <p><b>the -n option</b><br>
+  When a script is to be used with a web-server, its output must be preceeded
+  with a <i>Content-type</i> line. The xslt-parser script does this by default.
+  It can be turned off with the -n(oweb) option.
+  
+  <p><b>the -s option</b><br>
+  By default the script uses the &lt;project&gt;.xsl XSLT template. With the
+  -s(tylesheet) &lt;template.xsl&gt; option other templates can be used.
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="download">Download</a></font></h3>
+  
+  <p>Download version 0.15 of the script <a href="dist/XML-XSLT-0.15.tar.gz">here</a>. It requires
+  the modules XML::Parser (version 2.23 or higher) and XML::DOM (version 1.25 or higher) 
+  which can be obtained from <a href="http://www.perl.com/CPAN">CPAN</a>. A <a href="changelog.html">changelog</a> 
+  is available.
+
+  <p>The first release can be downloaded <a href="dist/xslt-parser-0.1.tar.gz">here</a>.
+  Other releases can be downloaded from <a href="changelog.html">changelog</a>.
+
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="bug">Bugs</a></font></h3>
+
+  <ul>
+    <li>xsl:template matches only /fullpath/elem, /fullpath/@attr, elem, @attr, * and @*
+    <li>xsl:value-of selects only any sequence of elem and elem[n] seperated and/or preceded by a slash '/' and/or followed by @attr
+  </ul>
+  
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="next">What's Next?</a></font></h3>
+  
+  <p>To do:
+  <ul>
+    <li>debugging ofcourse
+    <li>implementation of advanced template matches (better pattern matches and support of | [or])
+    <li>implementation of advanced value selections
+    <li>implementation of xsl:copy-of
+    <li>and at the end full support of XSL-T
+  </ul>
+      
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="links">Links</a></font></h3>
+
+  <p><b>XSL-T</b>
+  <ul>
+    <li><a href="http://msdn.microsoft.com/msdn-online/workshop/xml/xslguide/patterns-xsl.asp">http://msdn.microsoft.com/msdn-online/workshop/xml/xslguide/patterns-xsl.asp</a>
+    <li><a href="http://www.xmlsoftware.com/articles/xsl-by-example.html">http://www.xmlsoftware.com/articles/xsl-by-example.html</a>
+    <li><a href="http://www.xml.com/xml/pub/1999/04/holman/xsl.html">http://www.xml.com/xml/pub/1999/04/holman/xsl.html</a>
+    <li><a href="http://www.w3.org/TR/xslt">W3C Recommendation on XSLT</a>
+    <li><a href="http://www.xmlsoftware.com/xsl/">XMLSoftware.com on XSL</a>
+    <li><a href="http://www.xmlinfo.com/xsl/">XMLInfo on XSL</a>
+    <li><a href="http://www.mulberrytech.com/xsl/xsl-list/index.html">XSL Maillinglist</a>
+  </ul>
+  
+  <p><b>Other</b>
+  <ul>
+    <li><a href="http://www.xml.com/xml/pub/98/09/xml-perl.html">Perl and XML</a>
+    <li><a href="http://wwwx.netheaven.com/~coopercc/xmlparser/Parser.html">XML::Parser</a>
+    <li><a href="http://www.w3.org/TR/REC-DOM-Level-1/">W3C Recommendation on DOM</a>
+  </ul>
+
+</TD>
+</table>
+
+</body>
+</html>

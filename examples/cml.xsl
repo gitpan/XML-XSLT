@@ -1,6 +1,5 @@
-<?xml version="1.0"?>
-<xsl:stylesheet 
-  xmlns:xsl="http://www.w3.org/TR/WD-xsl">
+<!--?xml version="1.0"?-->
+<xsl:stylesheet xmlns:xsl="http://www.w3.org/XSL/Transform/1.0">
 
   <xsl:template match="*">
     <xsl:apply-templates/>
@@ -27,11 +26,11 @@
   </xsl:template>
 
   <xsl:template match="float">
-    <b><xsl:value-of select="@title"/>:</b> <xsl:value-of/> <xsl:value-of select="@units"/><br/>
+    <b><xsl:value-of select="@title"/>:</b> <xsl:value-of select="."/> <xsl:value-of select="@units"/><br/>
   </xsl:template>
 
   <xsl:template match="string">
-    <b><xsl:value-of select="@title"/>:</b> <xsl:value-of/><br/>
+    <b><xsl:value-of select="@title"/>:</b> <xsl:value-of select="."/><br/>
   </xsl:template>
 
 </xsl:stylesheet>

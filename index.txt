@@ -1,0 +1,162 @@
+
+  * Supported commands                                XML::XSLT Homepage
+  * Action!
+  * Script options
+                       XSLT
+  * Download
+  * Bugs               You wrote some XML, and have a XSL Template. You want to use this on your
+  * What's Next        website, but want to use Perl with your webserver. No Problem!
+  * Links
+                            Remember that this project is Work in Progress! Rome wasn't build in one
+                            day! Any comment is welcome! Any programming effort as well! This modules
+ Send comment and bugs      *is* great stuff, but it isn't finished yet!
+ to:
+   Geert Josten and                                                                                 Egon
+   Egon Willighagen
+                       XML::XSLT will convert the XML doc on basis of the template. It is written in
+ last modified on      Perl and works. Not all xsl commands are implemented yet. Nor is it fast. But
+ December 17th 1999.   meanwhile it works: watch it in action. At this moment we need a lot of input. So
+                       try this script and give us your comment on it. Missing/needed xsl elements,
+   ------------------  bugs, anything...
+
+ XSA doc:              This document gives some explanation on this project. Other Stuff to read is the
+ xslt-parser.xsa.      Specification of XSLT and the XSL(T)-by-example page (see links). Below, given is
+                       a list of XSLT-command's that are supported.
+
+                       Supported XSLT commands
+
+                       <xsl:when test="elem='value'"> <xsl:when test="path/[@attr='value']"> <xsl:when
+                       test="path/[elem='value']"> <xsl:when test="path/elem"> <xsl:when
+                       test="path/@attr">
+                                 command           supported                   comment
+                              xsl:stylesheet        limited             Just has to be present
+
+                               xsl:template         limited    attributes match and name are supported
+                                                                            to some extend
+                                                                  this used to implement nesting of
+                             xsl:sub-template     depricated!       template instead of the use of
+                                                                           apply-templates
+
+                           xsl:apply-templates      limited    attribute select is supported as far as
+                                                                xsl:value-of supports path selections
+
+                            xsl:call-template         yes         takes attribute name which selects
+                                                                         xsl:template by name
+                                                                  takes attribute href, which can be
+                               xsl:include            yes      relative-local absolute-local as well as
+                                                                an URL (preceded by identifier http:)
+                                                                 attribute selection, element values.
+                                                                              Examples:
+                                                               <xsl:value-of select="."/> <xsl:value-of
+                                                                 select="/root-elem"/> <xsl:value-of
+                               xsl:value-of         limited         select="elem"/> <xsl:value-of
+                                                                   select="//elem"/> <xsl:value-of
+                                                                   select="elem[n]"/> <xsl:value-of
+                                                                  select="//elem[n]"/> <xsl:value-of
+                                                                 select="@attr"/> and combinations of
+                                                                               these;
+                               xsl:for-each            no                   is it needed?
+                                                                tests sequentially all xsl:whens until
+                                xsl:choose          limited   one succeeds or until an xsl:otherwise is
+                                                                                found.
+
+                                 xsl:when           limited                    Example:
+                                                                   <xsl:when test="@attr='value'">
+                              xsl:otherwise           yes
+                                xsl:output             no          will be added if anyone needs it
+                        xsl:processing-instruction    yes
+
+                       Action!
+
+                       Oke, let's see it work. The script takes a project name <project>. The files
+                       <project>.xml and <project>.xsl are read and converted to an internal object tree
+                       with XML::DOM. Then the XSL template is parsed against the XML tree, which
+                       results in a new doc that is redirected to STDOUT. That's all.
+
+                       Ofcourse, it need not be HTML. With XSLT you can convert any XML document with
+                       any XSL doc you like.
+
+                       NB! These are the updated examples. They only work with version 0.13 or higher.
+
+                       This is the CML project:
+
+                          * This project makes old CML files of the Dictionary on Organic Chemistry
+                            conform the newest CML DTD.
+                          * 91-22-5.cml (old cml file)
+                          * cml2cml.xsl (for cml to cml conversion)
+                          * resulting 91-22-5.xml
+                          * Please note that is you use IE 5.0 to view the result you it gets parsed by
+                            the IE XSL parser for a XML2HTML conversion due to the xsl stylesheet below.
+                            If so, use right mouse button and view source to see the underlying xml file
+                            when viewing the xml file with the stylesheet.
+                          * cml.xsl
+                          * The rest of the new CML files are served at the Dictionary on Organic
+                            Chemistry project as Physical Properties (example) and at xmltree.com.
+
+                       The Agenda project:
+
+                          * agenda.dtd
+                          * agenda.xml
+                          * agenda.xsl
+                          * agenda.html
+
+                       Script options
+
+                       The script can be used as an CGI script, but also as a command-line utility. Also
+                       accepts a XSL Template other than <project>.xsl. These behaviours are selected
+                       with some options. Run xslt-parser without options or parameters at the
+                       commandline to view its syntax.
+
+                       the -n option
+                       When a script is to be used with a web-server, its output must be preceeded with
+                       a Content-type line. The xslt-parser script does this by default. It can be
+                       turned off with the -n(oweb) option.
+
+                       the -s option
+                       By default the script uses the <project>.xsl XSLT template. With the
+                       -s(tylesheet) <template.xsl> option other templates can be used.
+
+                       Download
+
+                       Download version 0.15 of the script here. It requires the modules XML::Parser
+                       (version 2.23 or higher) and XML::DOM (version 1.25 or higher) which can be
+                       obtained from CPAN. A changelog is available.
+
+                       The first release can be downloaded here. Other releases can be downloaded from
+                       changelog.
+
+                       Bugs
+
+                          * xsl:template matches only /fullpath/elem, /fullpath/@attr, elem, @attr, *
+                            and @*
+                          * xsl:value-of selects only any sequence of elem and elem[n] seperated and/or
+                            preceded by a slash '/' and/or followed by @attr
+
+                       What's Next?
+
+                       To do:
+
+                          * debugging ofcourse
+                          * implementation of advanced template matches (better pattern matches and
+                            support of | [or])
+                          * implementation of advanced value selections
+                          * implementation of xsl:copy-of
+                          * and at the end full support of XSL-T
+
+                       Links
+
+                       XSL-T
+
+                          * http://msdn.microsoft.com/msdn-online/workshop/xml/xslguide/patterns-xsl.asp
+                          * http://www.xmlsoftware.com/articles/xsl-by-example.html
+                          * http://www.xml.com/xml/pub/1999/04/holman/xsl.html
+                          * W3C Recommendation on XSLT
+                          * XMLSoftware.com on XSL
+                          * XMLInfo on XSL
+                          * XSL Maillinglist
+
+                       Other
+
+                          * Perl and XML
+                          * XML::Parser
+                          * W3C Recommendation on DOM

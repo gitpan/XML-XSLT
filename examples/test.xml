@@ -2,6 +2,8 @@
 <!DOCTYPE AGENDA SYSTEM "agenda.dtd">
 <!-- Place comment here -->
 <AGENDA NAME="Sigma">
+  hoi piepeloi!
+  Dit is wat test tekst...
   <MAAND ID="1/99" NAAM="Januari">
     <PUNT TYPE="Borrel">
       <TITEL>Nieuwjaarsborrel</TITEL>
