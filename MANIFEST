@@ -2,6 +2,8 @@ t/zeroes.t
 ChangeLog
 Makefile.PL
 README
+xslt-parser
+MANIFEST
 examples/91-22-5.cml
 examples/91-22-5.cml.xml
 examples/91-22-5.xml
@@ -32,6 +34,8 @@ examples/test2.xsl
 examples/xmlspec.xsl
 examples/xpath.xsl
 examples/xslt.xsl
-XSLT.pm
-xslt-parser
-MANIFEST
+lib/XML/XSLT.pm
+t/zeroes.t
+t/doe.t
+t/params.t
+t/xsl_cond.t
