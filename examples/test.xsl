@@ -11,8 +11,11 @@
       <BODY BGCOLOR="#EEEEEE" BACKGROUND="gifs/achtergrond.gif">
         <TABLE WIDTH="100%">
 
-
-        <xsl:apply-templates/><!-- /MAAND -->
+<A>
+<xsl:attribute name="HREF"><xsl:value-of select="MAAND/@NAAM"/></xsl:attribute>
+</A>
+<xsl:comment>Maand naam:<xsl:value-of select="MAAND/@NAAM"/></xsl:comment>
+        <!--xsl:apply-templates//MAAND -->
 
         </TABLE>
       </BODY>

@@ -14,7 +14,8 @@
   <table bgcolor="silver" border="0">
     <tr><td rowspan="9" bgcolor="navy" width="5">&nbsp;
     <tr><td><a href="index.html"><li><font color="black" face="arial,cotton">XML::XSLT&nbsp;Homepage</font></a><br>
-    <tr><td><a href="#v0.18"><li><font color="black" face="arial,cotton">Version&nbsp;0.18</font></a><br>
+    <tr><td><a href="#v0.19"><li><font color="black" face="arial,cotton">Version&nbsp;0.19</font></a><br>
+    <tr><td><a href="#v0.18"><li><font color="black" face="arial,cotton">Version&nbsp;0.18</font></a><br>          
     <tr><td><a href="#v0.17"><li><font color="black" face="arial,cotton">Version&nbsp;0.17</font></a><br>
     <tr><td><a href="#v0.16"><li><font color="black" face="arial,cotton">Version&nbsp;0.16</font></a><br>          
     <tr><td><a href="#v0.15"><li><font color="black" face="arial,cotton">Version&nbsp;0.15</font></a><br>
@@ -43,11 +44,23 @@
     <tr><td align="center"><h1><font color="white" face="arial,cotton">XML::XSLT Changelog</font></h1>
   </table>
 
+  <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.19" href="dist/XML-XSLT-0.19.tar.gz">v. 0.19</a></font></h3>
+                                                                                                                                
+   <p>                                                                                                                          
+   <li>experimental support for <TT>&lt;?xml encoding="..."?&gt;</TT> at the first line of the xml or xsl file
+       (might be superfluous as XML::Parser already takes care of this)
+   <li>experimental support for xsl:comment
+   <li>support for xsl:attribute
+   <li>extended open_project, now can be passed a filename, filehandle, dom-tree, string or stringref as xml or xsl argument
+   <li>fixed selection of 'recursive' node-sets
+   <li>fixed bug in xsl:processing-instruction
+   <li>corrected name matching in tests of xsl:if and xsl:when
+
   <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.18" href="dist/XML-XSLT-0.18.tar.gz">v. 0.18</a></font></h3>
                                                                                                                                 
    <p>                                                                                                                          
    <li>fixed crappy implementation of xsl:if and removed unfolding of entities in xsl:text (DOM does this already)
-
+                                                                                                                  
   <h3><font color="navy" face="arial,cotton"><a class="id" name="v0.17" href="dist/XML-XSLT-0.17.tar.gz">v. 0.17</a></font></h3>
 
    <p>                                                                               

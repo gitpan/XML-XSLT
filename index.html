@@ -104,120 +104,12 @@ then click the 'Join List' button:<br>
    But from version 0.11 the module accepts the &lt;xsl:stylesheet&gt; command
    so valid XSL files will be accepted.-->
   
-  <P><table width="100%" border="1">
-    <tr bgcolor="black">
-      <th align="center"><font color="white">command</font></th>
-      <th align="center"><font color="white">supported</font></th>
-      <th align="center"><font color="white">comment</font></th>
-    </tr>
-    <tr>
-      <td align="center">xsl:apply-templates</td>
-      <td align="center">limited</td>
-      <td align="center">attribute select is supported as far as xsl:value-of
-       supports path selections</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:call-template</td>
-      <td align="center">yes</td>
-      <td align="center">takes attribute name which selects xsl:template by name</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:choose</td>
-      <td align="center">limited</td>
-      <td align="center">tests sequentially all xsl:whens until one succeeds or
-       until an xsl:otherwise is found.</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:copy</td>
-      <td align="center">experimental in v0.16</td>
-      <td align="center">takes no attributes, ignores content</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:copy-of</td>
-      <td align="center">experimental in v0.16</td>
-      <td align="center">takes attribute select, which selects likewise
-       apply-templates select</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:for-each</td>
-      <td align="center">experimental in v0.16</td>
-      <td align="center">most requested since 0.15</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:include</td>
-      <td align="center">yes</td>
-      <td align="center">takes attribute href, which can be relative-local
-       absolute-local as well as an URL (preceded by identifier http:)</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:otherwise</td>
-      <td align="center">yes</td>
-      <td align="center">&nbsp;</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:output</td>
-      <td align="center">no</td>
-      <td align="center">will be added if anyone needs it</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:processing-instruction</td>
-      <td align="center">yes</td>
-      <td align="center">&nbsp</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:stylesheet</td>
-      <td align="center">limited</td>
-      <td align="center">Just has to be present</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:sub-template</td>
-      <td align="center">depricated!</td>
-      <td align="center">this used to implement nesting of template
-	instead of the use of apply-templates</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:template</td>
-      <td align="center">limited</td>
-      <td align="center">attributes match and name are supported to some extend</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:value-of</td>
-      <td align="center">limited</td>
-      <td align="center">attribute selection, element values.<br>
-        Examples:<br>
-	&lt;xsl:value-of select="."/&gt;<br>
-	&lt;xsl:value-of select="/root-elem"/&gt;<br>
-	&lt;xsl:value-of select="elem"/&gt;<br>
-	&lt;xsl:value-of select="//elem"/&gt;<br>
-	&lt;xsl:value-of select="elem[n]"/&gt;<br>
-	&lt;xsl:value-of select="//elem[n]"/&gt;<br>
-	&lt;xsl:value-of select="@attr"/&gt;<br>
-	and combinations of these;</td>
-    </tr>
-    <tr>
-      <td align="center">xsl:when</td>
-      <td align="center">limited</td>
-      <td align="center">Only inside xsl:choose<br>
-      Examples:<br>
-        &lt;xsl:when test="@attr='value'"&gt;<br>
-        &lt;xsl:when test="elem='value'"&gt;<br>
-        &lt;xsl:when test="path/[@attr='value']"&gt;<br>
-        &lt;xsl:when test="path/[elem='value']"&gt;<br>
-        &lt;xsl:when test="path/elem"&gt;<br>
-        &lt;xsl:when test="path/@attr"&gt;</td>
-    </tr>
-    <tr> 
-      <td align="center">xsl:if</td>
-      <td align="center">limited</td>
-      <td align="center">See xsl:when, except for the required xsl:choose context
-    </tr>                                      
-    <tr>
-      <td align="center">xsl:text</td>
-      <td align="center">very limited</td>
-      <td align="center">Text is inserted as is, except for the entities &amp;lt;
-       and &amp;gt; which are translated to &lt; and &gt;
-    </tr>
-  </table>
+  <P>The list of commands that are supported by XML::XSLT has been moved to the
+  <a href="/cgi-bin-sigma/persoonlijk/egonw/xslt/pod2html.pl">online manpage</a>.
+  To see what to upcoming version has to offer, have a look at the 
+  <a href="/cgi-bin-sigma/persoonlijk/egonw/xslt/pod2html.pl?nextrelease">manpage</a>
+  of the next version.
+  
 
   <h3><font color="navy" face="arial,cotton"><a class="id" name="action">Action!</a></font></h3>
   
@@ -279,9 +171,9 @@ then click the 'Join List' button:<br>
 
   <h3><font color="navy" face="arial,cotton"><a class="id" name="download">Download</a></font></h3>
 
-  <p>The latest release is <a href="dist/XML-XSLT-0.18.tar.gz">v0.18</a> 
-  which has experimental support for xsl:for-each, which needs testing.
-  Download version 0.15 of the script <a href="dist/XML-XSLT-0.15.tar.gz">here</a>. Both require
+  <p>The latest release is <a href="dist/XML-XSLT-0.19.tar.gz">v0.19</a> 
+  which needs as always testing (see changelog and manpage).
+  Required are
   the modules XML::Parser (version 2.23 or higher) and XML::DOM (version 1.25 or higher) 
   which can be obtained from <a href="http://www.perl.com/CPAN">CPAN</a>. Our module also depends on
   the module LWP::UserAgent as was pointed out by a user. This module can also be downloaded from
@@ -295,11 +187,9 @@ then click the 'Join List' button:<br>
   <ul>
     <li>xsl:template matches only /fullpath/elem, /fullpath/@attr, elem, @attr, * and @*
     <li>xsl:value-of selects only any sequence of elem and elem[n] seperated and/or preceded by a slash '/' and/or followed by @attr
-    <li>xsl:apply-templates and xsl:for-each select-attribute do not support the selection of children of a node-set, instead fragment the 
-        selection path into multiple (auxiliary-)templates.
   </ul>
 
-  <p>Bugs can be submitted <a href="/cgi-bin-sigma/htplp?xslt-bugs">here</a>.
+  <p>Submit new bugs at the on-line bug-report list <a href="/cgi-bin-sigma/htplp?xslt-bugs">here</a>!
   
   <h3><font color="navy" face="arial,cotton"><a class="id" name="next">What's Next?</a></font></h3>
   
@@ -307,7 +197,7 @@ then click the 'Join List' button:<br>
   <ul>
     <li>first implementation of xsl:param/xsl:variable/xsl:with-param
     <li>mode attribute support for xsl:template and xsl:apply-templates
-    <li>POD-documentation and SVC file
+    <li>SVC file
     <li>debugging ofcourse
     <li>integration of the new XPath module (?)
     <li>implementation of advanced template matches (better pattern matches and support of | [or])
@@ -333,6 +223,7 @@ then click the 'Join List' button:<br>
     <li><a href="http://www.xml.com/xml/pub/98/09/xml-perl.html">Perl and XML</a>
     <li><a href="http://wwwx.netheaven.com/~coopercc/xmlparser/Parser.html">XML::Parser</a>
     <li><a href="http://www.w3.org/TR/REC-DOM-Level-1/">W3C Recommendation on DOM</a>
+    <li><a href="http://www.perlmonth.com/columns/perl_xml/perl_xml.html?issue=6&id=942343222">PerlMonth article on XML::DOM</a>
   </ul>
 
 </TD>

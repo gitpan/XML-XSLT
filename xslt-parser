@@ -9,10 +9,10 @@ my $xmlfile = "";
 
 &process_arguments (@ARGV);
 print $/ if $XSLT::debug;
-$XSLT::Parser->openproject ($xmlfile, $xslfile);
+$XSLT::Parser->open_project ($xmlfile, $xslfile, "FILE", "FILE");
 $XSLT::Parser->process_project;
 print "Content-type: text/html$/$/" unless $noweb;
-$XSLT::Parser->print_result;
+$XSLT::Parser->print_result();
 
 exit;
 

@@ -14,10 +14,10 @@
 
   <xsl:template match="XVAR">
 	<xsl:choose>
-	  <xsl:when test=".[@BUILTIN='BOILINGPOINT']">
+	  <xsl:when test="./[@BUILTIN='BOILINGPOINT']">
             <float title="BoilingPoint" units="degrees Celsius"><xsl:value-of select="."/></float>
 	  </xsl:when>
-	  <xsl:when test=".[@BUILTIN='MELTINGPOINT']">
+	  <xsl:when test="./[@BUILTIN='MELTINGPOINT']">
             <float title="MeltingPoint" units="degrees Celsius"><xsl:value-of select="."/></float>
 	  </xsl:when>
 	</xsl:choose>
