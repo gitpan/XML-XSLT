@@ -1,0 +1,15 @@
+2000-06-16  Mark A. Hershberger  <mah@everybody.org>
+
+	* website/: moved the *.html files to the website directory so
+	that we could maintain the sourceforge website in cvs.
+
+	* XSLT.pm: Removed un-needed BEGIN{} section.  This was mostly
+	there to test for the proper version of XML::DOM, but this
+	function is more properly performed at the time of installation
+	and not at run time.
+
+2000-06-28  Bron Gondwana  <perlcode@brong.net>
+
+	* XSLT.pm: Removed attempt to call dispose on DOMparser as this
+	doesn't actually have a dispose method.  Incremented version
+	number to 0.23.

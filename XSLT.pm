@@ -5,9 +5,6 @@
 # By Geert Josten, gjosten@sci.kun.nl
 # and Egon Willighagen, egonw@sci.kun.nl
 #
-# Now in Sourceforge,
-# $Id: XSLT.pm,v 1.4 2000/06/14 16:13:05 brong Exp $
-#
 ################################################################################
 
 ######################################################################
@@ -37,34 +34,35 @@ BEGIN {
   die "need at least XML::DOM version $needVersion (current=$domVersion)"
     unless $domVersion >= $needVersion;
 
-  $VERSION = '0.22';
+  $VERSION = '0.23';
 
   @ISA         = qw( Exporter );
-  @EXPORT_OK   = qw( &transform_document &result_string
-                     &result_tree &print_result);
+  @EXPORT_OK   = qw( &new &transform_document &output_string
+                     &output_tree &print_output &dispose
+                     &output_mime_type);
 
   # pretty print HTML tags (<BR /> etc...)
   XML::DOM::setTagCompression (\&__my_tag_compression__);
 
   ### added for efficiency reasons
-  $ELEMENT_NODE 	       = ELEMENT_NODE;
-  $ATTRIBUTE_NODE	       = ATTRIBUTE_NODE;
-  $TEXT_NODE		       = TEXT_NODE;
-  $CDATA_SECTION_NODE	       = CDATA_SECTION_NODE;
-  $ENTITY_REFERENCE_NODE       = ENTITY_REFERENCE_NODE;
-  $ENTITY_NODE  	       = ENTITY_NODE;
-  $PROCESSING_INSTRUCTION_NODE = PROCESSING_INSTRUCTION_NODE;
-  $COMMENT_NODE 	       = COMMENT_NODE;
-  $DOCUMENT_NODE	       = DOCUMENT_NODE;
-  $DOCUMENT_TYPE_NODE	       = DOCUMENT_TYPE_NODE;
-  $DOCUMENT_FRAGMENT_NODE      = DOCUMENT_FRAGMENT_NODE;
-  $NOTATION_NODE	       = NOTATION_NODE;
+  $ELEMENT_NODE 	       = XML::DOM::ELEMENT_NODE;
+  $ATTRIBUTE_NODE	       = XML::DOM::ATTRIBUTE_NODE;
+  $TEXT_NODE		       = XML::DOM::TEXT_NODE;
+  $CDATA_SECTION_NODE	       = XML::DOM::CDATA_SECTION_NODE;
+  $ENTITY_REFERENCE_NODE       = XML::DOM::ENTITY_REFERENCE_NODE;
+  $ENTITY_NODE  	       = XML::DOM::ENTITY_NODE;
+  $PROCESSING_INSTRUCTION_NODE = XML::DOM::PROCESSING_INSTRUCTION_NODE;
+  $COMMENT_NODE 	       = XML::DOM::COMMENT_NODE;
+  $DOCUMENT_NODE	       = XML::DOM::DOCUMENT_NODE;
+  $DOCUMENT_TYPE_NODE	       = XML::DOM::DOCUMENT_TYPE_NODE;
+  $DOCUMENT_FRAGMENT_NODE      = XML::DOM::DOCUMENT_FRAGMENT_NODE;
+  $NOTATION_NODE	       = XML::DOM::NOTATION_NODE;
   ### these node ID's are not part of the Reccomendation
-  #$UNKNOWN_NODE		= UNKNOWN_NODE;
-  #$ELEMENT_DECL_NODE  	 	= ELEMENT_DECL_NODE;
-  #$ATT_DEF_NODE		= ATT_DEF_NODE;
-  #$XML_DECL_NODE		= XML_DECL_NODE;
-  #$ATTLIST_DECL_NODE  	 	= ATTLIST_DECL_NODE;
+  #$UNKNOWN_NODE		= XML::DOM::UNKNOWN_NODE;
+  #$ELEMENT_DECL_NODE  	 	= XML::DOM::ELEMENT_DECL_NODE;
+  #$ATT_DEF_NODE		= XML::DOM::ATT_DEF_NODE;
+  #$XML_DECL_NODE		= XML::DOM::XML_DECL_NODE;
+  #$ATTLIST_DECL_NODE  	 	= XML::DOM::ATTLIST_DECL_NODE;
 }
 
     # private auxiliary function #
@@ -92,6 +90,8 @@ sub new {
   $args{indent} ||= 0;         # Default to 0   #
   $args{indent_incr} ||= 1;    # Default to 1   #
 
+  print "creating parser object:$/" if $args{debug};
+
   if (!$xsl) {
     warn "No stylesheet was passed to new(), no parser object is created!";
     return undef;
@@ -112,7 +112,9 @@ sub new {
 	               indent => $args{indent}, indent_incr => $args{indent_incr}
 		     }, $class;
 
-  $parser->open_xsl ($xsl, $xsl_flag, %args);
+  $parser->{indent} += $parser->{indent_incr};
+    $parser->open_xsl ($xsl, $xsl_flag, %args);
+  $parser->{indent} -= $parser->{indent_incr};
 
   return $parser;
 }
@@ -176,6 +178,8 @@ sub open_xsl {
 
       $parser->__add_default_templates;
       $parser->__cache_templates; # speed optim #
+      
+      $parser->__set_xsl_output;
     }
 
         # private auxiliary function #
@@ -195,7 +199,7 @@ sub open_xsl {
 	  if (! $stylesheet) {
             # stylesheet is actually one compleet template! #
 	    # put it in a template-element #
-
+	    
             $stylesheet = $xsl->createElement ("$xsl_ns:stylesheet");
 	    my $template = $xsl->createElement ("$xsl_ns:template");
 	    $template->setAttribute ('match', "/");
@@ -205,7 +209,7 @@ sub open_xsl {
             $stylesheet->appendChild ($template);
 	    $template->appendChild ($template_content);
 	  }
-
+	  
 	  return ($stylesheet, "$xsl_ns:");
 	}
 
@@ -220,10 +224,10 @@ sub open_xsl {
             if ($value) {
               if ($name eq "version") {
 	        $xsl_version = $value;
-	      } elsif ($name =~ /^xmlns(\:([\w\.\-]+)){0,1}/) {
-	        my $namespace = (defined $2 ? "$2:" : "");
+	      } elsif ($name =~ /^xmlns(\:([\w\.\-]+)){0,1}/i) {
+	        my $namespace = ($2 ? "$2:" : "");
 	        if (($namespace eq $xsl_ns)
-	        && ($value !~ /^http\:\/\/www\.w3\.org\/1999\/XSL\/Transform/)) {
+	        && ($value !~ /^http\:\/\/www\.w3\.org\/1999\/XSL\/Transform/i)) {
 	          warn "XML::XSLT implements the specs of http://www.w3.org/1999/XSL/Transform. URL $value might be depricated.$/"
 		    if $parser->{warnings};
 	        }
@@ -233,7 +237,7 @@ sub open_xsl {
               print " "x$parser->{indent},"attribute $name carries no value$/" if $parser->{debug};
             }
 	  }
-
+	  
 	  if (! exists ${$parser->{namespaces}}{""}) {
 	    $parser->{namespaces} = {%{$parser->{namespaces}}, "" => 'http://www.w3.org/TR/xhtml1/strict'};
 	  }
@@ -251,7 +255,7 @@ sub open_xsl {
 	      eval {
 	        ($include_doc, $dir) = $parser->_open_by_filename ($include_file, $xsl_dir);
 	      };
-
+	      
 	      if ($@) {
 	        chomp ($@);
                 print " "x$parser->{indent},"inclusion of $include_file failed! ($@)$/" if $parser->{debug};
@@ -278,7 +282,7 @@ sub open_xsl {
 	  my $parser = $_[0];
 
 	  foreach my $child ($parser->{stylesheet}->getElementsByTagName ('*',0)) {
-	    if ($child =~ /^$parser->{xsl_ns}(variable|param)/) {
+	    if ($child =~ /^$parser->{xsl_ns}(variable|param)/i) {
               my $vartag = $1;
 
               my $name = $child->getAttribute("name");
@@ -339,7 +343,7 @@ sub open_xsl {
 	  # reversing the template order is much more efficient #
 	  foreach my $template (reverse @{$parser->{templates}}) {
 	    if ($template->getParentNode->getTagName =~
-	        /^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/) {
+	        /^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/i) {
 	      my $match = $template->getAttribute ('match');
 	      my $name = $template->getAttribute ('name');
               if ($match && $name) {
@@ -361,6 +365,50 @@ sub open_xsl {
 	  }
 	}
 
+	# private auxiliary function #
+	sub __set_xsl_output {
+	  my $parser = $_[0];
+
+          # default settings
+          $parser->{method} = 'xml';
+          $parser->{media_type} = 'text/xml';
+          $parser->{omit_xml_declaration} = 'yes';
+
+          # extraction of top-level xsl:output tag
+          my ($output) = $parser->{stylesheet}->getElementsByTagName("$parser->{xsl_ns}output",0);
+          
+          if ($output) {
+            # extraction and processing of the attributes
+            my $attribs = $output->getAttributes;
+            $parser->{media_type} = $attribs->getNamedItem('media-type')->getNodeValue;
+            $parser->{method} = $attribs->getNamedItem('method')->getNodeValue;
+
+            if ($parser->{method} eq 'xml') {
+
+              my $omit_xml_declaration = $attribs->getNamedItem('omit-xml-declaration')->getNodeValue;
+
+              if (($omit_xml_declaration ne 'yes') && ($omit_xml_declaration ne 'no')) {
+                print " "x$parser->{indent},"wrong value for attribute \"omit-xml-declaration\" in <$parser->{xsl_ns}output>, should be \"yes\" or \"no\"\n" if ($parser->{debug});
+                warn "Wrong value for attribute \"omit-xml-declaration\" in $parser->{xsl_ns}output, should be \"yes\" or \"no\"\n" if $parser->{warnings};
+              } else {
+                $parser->{omit_xml_declaration} = $omit_xml_declaration;
+              }
+
+              if (! $parser->{omit_xml_declaration}) {
+                $parser->{output_version} = $attribs->getNamedItem('version')->getNodeValue;
+                $parser->{output_encoding} = $attribs->getNamedItem('encoding')->getNodeValue;
+
+                if ((! $parser->{output_version}) || (! $parser->{output_encoding})) {
+                  print " "x$parser->{indent},"expected attributes \"version\" and \"encoding\" in <$parser->{xsl_ns}output>\n" if ($parser->{debug});
+                  warn "Expected attributes \"version\" and \"encoding\" in $parser->{xsl_ns}output\n" if $parser->{warnings};
+                }
+              }
+            }
+            $parser->{doctype_public} = ($attribs->getNamedItem('doctype-public')->getNodeValue||'');
+            $parser->{doctype_system} = ($attribs->getNamedItem('doctype-system')->getNodeValue||'');
+          }
+        }  
+
 
 sub open_project {
   my ($parser, $xml, $xsl, $xmlflag, $xslflag, %args) = @_;
@@ -378,7 +426,7 @@ sub open_project {
 sub transform_document {
   my ($parser, $xml, $xmlflag, %topvariables) = @_;
 
-  print " "x$parser->{indent},"opening project:$/" if $parser->{debug};
+  print " "x$parser->{indent},"transforming document:$/" if $parser->{debug};
   $parser->{indent} += $parser->{indent_incr};
 
     $parser->open_xml ($xml, $xmlflag, %topvariables);
@@ -428,37 +476,87 @@ sub process_project {
   $parser->{indent} -= $parser->{indent_incr};
 }
 
-sub result_string {
+*result_string = *output_string;
+*result_tree = *output_tree;
+*result_mime_type = *output_mime_type;
+*result = *output;
+*print_result = *print_output;
+
+sub _my_print_text {
+  my ($self, $FILE) = @_;
+  if (defined $self->{_disable_output_escaping}) {
+#print "disabled output escaping!$/";
+    $FILE->print ($self->getData);
+  } else {
+    $FILE->print (XML::DOM::encodeText ($self->getData, "<&"));
+  }
+}
+
+sub output_string {
   my $parser = $_[0];
 
+  local *XML::DOM::Text::print = \&_my_print_text;
+
   my $string = $parser->{result}->toString;
-  $string =~ s/\n\s*\n(\s*)\n/\n$1\n/g; # Substitute multiple empty lines by one
+#  $string =~ s/\n\s*\n(\s*)\n/\n$1\n/g;  # Substitute multiple empty lines by one
 #  $string =~ s/\/\>/ \/\>/g;            # Insert a space before every />
+        
+  # get rid of CDATA wrappers
+#  if (! $parser->{printCDATA}) {
+#    $string =~ s/\<\!\[CDATA\[//g;
+#    $string =~ s/\]\]>//g;
+#  }
 
   return $string;
 }
 
-sub result_tree {
+sub output_tree {
   return $_[0]->{result};
 }
 
-sub result {
-  return $_[0]->result_string;
+sub output_mime_type {
+  return ($_[0]->{media_type});
 }
 
-sub print_result {
-  my ($parser, $file) = @_;
+sub output {
+  return $_[0]->output_string;
+}
+
+sub print_output {
+  my ($parser, $file, $mime) = @_;
+  $file ||= ''; # print to STDOUT by default
+  $mime = 1 unless defined $mime;
+                # print mime-type header etc by default
 
 #  $parser->{result}->printToFileHandle (\*STDOUT);
 #  or $parser->{result}->print (\*STDOUT); ???
 #  exit;
 
-  if (defined $file) {
-    if (ref (\$file) ne "SCALAR") {
-      print $file $parser->result_string,$/;
+  if ($mime) {
+    print "Content-type: $parser->{media_type}\n\n";
+
+    if ($parser->{method} eq 'xml') {
+      if (($parser->{omit_xml_declaration} eq 'no') && $parser->{output_version}
+                                                    && $parser->{output_encoding}) {
+        print "<?xml version=\"$parser->{output_version}\" encoding=\"$parser->{output_encoding}\"?>\n";
+      }
+    }
+    if ($parser->{doctype_system}) {
+      my $root_name = $parser->{result}->getElementsByTagName('*',0)->item(0)->getTagName;
+      if ($parser->{doctype_public}) {
+        print "<!DOCTYPE $root_name PUBLIC \"$parser->{doctype_public}\" \"$parser->{doctype_system}\">\n";
+      } else {
+        print "<!DOCTYPE $root_name SYSTEM \"$parser->{doctype_system}\">\n";
+      }
+    }
+  }
+
+  if ($file) {
+    if (ref (\$file) !~ /^SCALAR/i) {
+      print $file $parser->output_string,$/;
     } else {
       if (open (FILE, ">$file")) {
-        print FILE $parser->result_string,$/;
+        print FILE $parser->output_string,$/;
         if (! close (FILE)) {
           die ("Error writing $file: $!. Nothing written...$/");
         }
@@ -467,14 +565,14 @@ sub print_result {
       }
     }
   } else {
-    print $parser->result_string,$/;
+    print $parser->output_string,$/;
   }
 }
 
 sub dispose {
   #my $parser = $_[0];
 
-  $_[0]->{DOMparser}->dispose () if (defined $_[0]->{DOMparser});
+  #$_[0]->{DOMparser} = undef if (defined $_[0]->{DOMparser});
   $_[0]->{result}->dispose ()    if (defined $_[0]->{result});
 
   # only dispose xml and xsl when they were not passed as DOM
@@ -503,7 +601,7 @@ sub _open_document {
 
   # A filename or a filehandle/stream could be passed
   if ($object_type =~ /^FILE/i) {
-    if (ref (\$parse_object) ne "SCALAR") {
+    if (ref (\$parse_object) ne 'SCALAR') {
       # it is not a filename, let XML::Parser take care of it
       $doc = $parser->{DOMparser}->parse ($parse_object, %args);
     } else {
@@ -513,7 +611,7 @@ sub _open_document {
 
   # but a DOM tree could be passed as well    
   } elsif ($object_type =~ /^DOM/i) {
-    if (ref ($parse_object) eq "XML::DOM::Document") {
+    if (ref ($parse_object) eq 'XML::DOM::Document') {
       $doc = $parse_object;
     } else {
       die ("Error: pass a DOM Document node to open_project when passing a DOM tree$/");
@@ -521,7 +619,7 @@ sub _open_document {
 
   # or a scalar or even a scalar ref!
   } elsif ($object_type =~ /^STRING/i) {
-    if (ref ($parse_object) eq "SCALAR") {
+    if (ref ($parse_object) eq 'SCALAR') {
       $doc = $parser->{DOMparser}->parse ($$parse_object, %args);
     } else {
       $doc = $parser->{DOMparser}->parse ($parse_object, %args);
@@ -600,7 +698,7 @@ sub _match_template {
       my $full_match = $original_match;
 
       # multipe match? (for example: match="*|/")
-      while ($full_match =~ s/^(.+?)\|//) {
+      while ($full_match =~ s/^(.+?)\|//i) {
         my $match = $1;
         if (&__template_matches__ ($match, $select_value, $xml_count,
                                    $xml_selection_path)) {
@@ -640,7 +738,7 @@ sub _match_template {
     my ($template, $select, $count, $path) = @_;
     
     my $nocount_path = $path;
-    $nocount_path =~ s/\[.*?\]//g;
+    $nocount_path =~ s/\[.*?\]//ig;
 
     if (($template eq $select) || ($template eq $path)
     || ($template eq "$select\[$count\]") || ($template eq "$path\[$count\]")) {
@@ -655,17 +753,17 @@ sub _match_template {
       # template matches tail of path matches perfectly
 #print "perfect tail match",$/;
       return "True";
-    } elsif ($select =~ /\[\s*(\@.*?)\s*=\s*(.*?)\s*\]$/) {
+    } elsif ($select =~ /\[\s*(\@.*?)\s*=\s*(.*?)\s*\]$/i) {
       # match attribute test
       my $attribute = $1;
       my $value = $2;
       return ""; # False, no test evaluation yet #
-    } elsif ($select =~ /\[\s*(.*?)\s*=\s*(.*?)\s*\]$/) {
+    } elsif ($select =~ /\[\s*(.*?)\s*=\s*(.*?)\s*\]$/i) {
       # match test
       my $element = $1;
       my $value = $2;
       return ""; # False, no test evaluation yet #
-    } elsif ($select =~ /(\@\*|\@[\w\.\-\:]+)$/) {
+    } elsif ($select =~ /(\@\*|\@[\w\.\-\:]+)$/i) {
       # match attribute
       my $attribute = $1;
 #print "attribute match?",$/;
@@ -706,6 +804,9 @@ sub _evaluate_template {
         } elsif ($node_type == $CDATA_SECTION_NODE) {
           my $text = $parser->{xml}->createTextNode ($child->getData);
           $parser->_add_node($text, $current_result_node);
+#print "disabling output escaping$/";
+          $current_result_node->getLastChild->{_disable_output_escaping} = 1;
+          #$parser->_add_node($child, $current_result_node);
         } elsif ($node_type == $ENTITY_REFERENCE_NODE) {
           $parser->_add_node($child, $current_result_node);
         } elsif ($node_type == $DOCUMENT_TYPE_NODE) {
@@ -731,12 +832,16 @@ sub _add_node {
   $deep ||= ""; # False #
   $owner ||= $parser->{xml};
 
-  print " "x$parser->{indent},"adding node (deep)..$/" if $parser->{debug} && $deep;
-  print " "x$parser->{indent},"adding node (non-deep)..$/" if $parser->{debug} && !$deep;
+    print " "x$parser->{indent},"adding node (deep)..$/" if $parser->{debug} && $deep;
+    print " "x$parser->{indent},"adding node (non-deep)..$/" if $parser->{debug} && !$deep;
 
-  $node = $node->cloneNode($deep);
-  $node->setOwnerDocument($owner);
-  $parent->appendChild($node);
+    $node = $node->cloneNode($deep);
+    $node->setOwnerDocument($owner);
+    if ($node->getNodeType == $ATTRIBUTE_NODE) {
+      $parent->setAttributeNode($node);
+    } else {
+      $parent->appendChild($node);
+    }
 }
 
 sub _apply_templates {
@@ -795,9 +900,7 @@ sub _apply_templates {
 	    $newselect = $child->getTagName;
           } elsif ($node_type == $ATTRIBUTE_NODE) {
             $newselect = "@$child->getName";
-          } elsif ($node_type == $TEXT_NODE
-                   || $node_type == $ENTITY_REFERENCE_NODE
-                   || $node_type == $CDATA_SECTION_NODE) {
+          } elsif (($node_type == $TEXT_NODE) || ($node_type == $ENTITY_REFERENCE_NODE)) {
             $newselect = "text()";
           } elsif ($node_type == $PROCESSING_INSTRUCTION_NODE) {
             $newselect = "processing-instruction()";
@@ -908,73 +1011,71 @@ sub _evaluate_element {
   print " "x$parser->{indent},"evaluating element $xsl_tag from \"$current_xml_selection_path\": $/" if $parser->{debug};
   $parser->{indent} += $parser->{indent_incr};
 
-  # could use qr in newer perl versions
-  if ((substr $xsl_tag, 0, length $parser->{xsl_ns}) eq $parser->{xsl_ns}) {
-      my $tag = substr $xsl_tag, length $parser->{xsl_ns};
-      if ($tag eq "apply-templates") {
+  if ($xsl_tag =~ /^$parser->{xsl_ns}/i) {
+      if ($xsl_tag =~ /^$parser->{xsl_ns}apply-templates$/i) {
           $parser->_apply_templates ($xsl_node, $current_xml_node,
         			     $current_xml_selection_path,
                                      $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "attribute") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}attribute$/i) {
           $parser->_attribute ($xsl_node, $current_xml_node,
         		       $current_xml_selection_path,
                                $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "call-template") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}call-template$/i) {
           $parser->_call_template ($xsl_node, $current_xml_node,
         			   $current_xml_selection_path,
                                    $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "choose") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}choose$/i) {
           $parser->_choose ($xsl_node, $current_xml_node,
         		    $current_xml_selection_path,
                             $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "comment") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}comment$/i) {
           $parser->_comment ($xsl_node, $current_xml_node,
         		     $current_xml_selection_path,
                              $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "copy") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}copy$/i) {
           $parser->_copy ($xsl_node, $current_xml_node,
         		  $current_xml_selection_path,
                           $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "copy-of") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}copy-of$/i) {
           $parser->_copy_of ($xsl_node, $current_xml_node,
         		     $current_xml_selection_path,
                              $current_result_node, $variables);
 
-      } elsif ($tag eq "for-each") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}for-each$/i) {
           $parser->_for_each ($xsl_node, $current_xml_node,
         		      $current_xml_selection_path,
                               $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "if") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}if$/i) {
           $parser->_if ($xsl_node, $current_xml_node,
         		$current_xml_selection_path,
                         $current_result_node, $variables, $oldvariables);
 
-#      } elsif ($tag eq "output") {
+#      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}output$/i) {
 
-      } elsif ($tag eq "param") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}param$/i) {
           $parser->_variable ($xsl_node, $current_xml_node,
                               $current_xml_selection_path,
                               $current_result_node, $variables, $oldvariables);
 
-      } elsif ($tag eq "processing-instruction") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}processing-instruction$/i) {
           $parser->_processing_instruction ($xsl_node, $current_result_node);
 
-      } elsif ($tag eq "text") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}text$/i) {
           $parser->_text ($xsl_node, $current_result_node);
 
-      } elsif ($tag eq "value-of") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}value-of$/i) {
           $parser->_value_of ($xsl_node, $current_xml_node,
                               $current_xml_selection_path,
                               $current_result_node, $variables);
 
-      } elsif ($tag eq "variable") {
+      } elsif ($xsl_tag =~ /^$parser->{xsl_ns}variable$/i) {
           $parser->_variable ($xsl_node, $current_xml_node,
                               $current_xml_selection_path,
                               $current_result_node, $variables, $oldvariables);
@@ -1034,11 +1135,11 @@ sub _value_of {
     print " "x$parser->{indent},"stripping node to text:$/" if $parser->{debug};
 
     $parser->{indent} += $parser->{indent_incr};
-      my $text = undef;
+      my $text = "";
       $text = $parser->__string__ ($$xml_node[0]) if @$xml_node;
     $parser->{indent} -= $parser->{indent_incr};
 
-    if (defined($text)) {
+    if ($text) {
       $parser->_add_node ($parser->{xml}->createTextNode($text), $current_result_node);
     } else {
       print " "x$parser->{indent},"nothing left..$/" if $parser->{debug};
@@ -1070,6 +1171,7 @@ sub _value_of {
 
   sub __string__ {
     my ($parser, $node) = @_;
+    
     my $result = "";
 
     if ($node) {
@@ -1078,7 +1180,7 @@ sub _value_of {
 
       $parser->{indent} += $parser->{indent_incr};
 
-        if (ref $node eq 'ARRAY') {
+        if ($node eq "ARRAY") {
           return $parser->__string__ ($$node[0]);
         } else {
           my $node_type = $node->getNodeType;
@@ -1091,9 +1193,8 @@ sub _value_of {
             }
           } elsif ($node_type == $ATTRIBUTE_NODE) {
 	    $result .= $node->getValue;
-          } elsif ($node_type == $TEXT_NODE
-                   || $node_type == $ENTITY_REFERENCE_NODE
-                   || $node_type == $CDATA_SECTION_NODE) {
+          } elsif (($node_type == $TEXT_NODE)
+          || ($node_type == $ENTITY_REFERENCE_NODE)) {
 	    $result .= $node->getData;
           }
         }
@@ -1126,18 +1227,25 @@ sub _get_node_set {
 
   $parser->{indent} += $parser->{indent_incr};
 
+    # expand abbriviated syntax
+    $path =~ s/\@/attribute\:\:/g;
+    $path =~ s/\.\./parent\:\:node\(\)/g;
+    $path =~ s/\./self\:\:node\(\)/g;
+    $path =~ s/\/\//\/descendant\-or\-self\:\:node\(\)\//g;
+    #$path =~ s/\/[^\:\/]*?\//attribute::/g;
+    
     if ($path =~ /^\$([\w\.\-]+)$/) {
       my $varname = $1;
       my $var = $$variables{$varname};
       if ($var) {
-        if (ref $$variables{$varname} eq "ARRAY") {
-          # node-set array
+        if (ref ($$variables{$varname}) eq 'ARRAY') {
+          # node-set array-ref
           return $$variables{$varname};
-        } elsif (ref ($$variables{$varname}) eq "XML::DOM::NodeList") {
+        } elsif (ref ($$variables{$varname}) eq 'XML::DOM::NodeList') {
           # node-set nodelist
           return [@{$$variables{$varname}}];
-        } elsif (ref ($$variables{$varname}) eq "XML::DOM::DocumentFragment") {
-          # node-set nodelist
+        } elsif (ref ($$variables{$varname}) eq 'XML::DOM::DocumentFragment') {
+          # node-set documentfragment
           return [$$variables{$varname}->getChildNodes];
         } else {
           # string or number?
@@ -1147,7 +1255,7 @@ sub _get_node_set {
         # var does not exist
         return [];
       }
-    } elsif ($path eq $current_path || $path eq ".") {
+    } elsif ($path eq $current_path || $path eq 'self::node()') {
       print " "x$parser->{indent},"direct hit!$/" if $parser->{debug};
       return [$current_node];
     } else {
@@ -1170,9 +1278,10 @@ sub _get_node_set {
       if ($path =~ /^\//) {
         # start from the root #
         $current_node = $root_node;
-      } elsif ($path =~ /^\.\//) {
-        # remove preceding dot from './etc' #
-        $path =~ s/^\.//;
+      } elsif ($path =~ /^self\:\:node\(\)\//) {#'#"#'#"
+        # remove preceding dot from './etc', which is expanded to 'self::node()'
+        # at the top of this subroutine #
+        $path =~ s/^self\:\:node\(\)//;
       } else {
         # to facilitate parsing, precede path with a '/' #
         $path = "/$path";
@@ -1180,7 +1289,11 @@ sub _get_node_set {
 
       print " "x$parser->{indent},"using \"$path\": $/" if $parser->{debug};
 
-      $current_node = &__get_node_set__ ($parser, $path, [$current_node], $silent);
+      if ($path eq '/') {
+        $current_node = [$current_node];
+      } else {
+        $current_node = &__get_node_set__ ($parser, $path, [$current_node], $silent);
+      }
 
     $parser->{indent} -= $parser->{indent_incr};
     
@@ -1195,7 +1308,7 @@ sub _get_node_set {
 
     # a Qname (?) should actually be: [a-Z_][\w\.\-]*\:[a-Z_][\w\.\-]*
 
-    if ($path eq "" || $path eq "/") {
+    if ($path eq "") {
 
       print " "x$parser->{indent},"node found!$/" if $parser->{debug};
       return $node;
@@ -1214,48 +1327,47 @@ sub _get_node_set {
       my ($parser, $path, $node, $silent) = @_;
 
       study ($path);
-      if ($path =~ s/^\/\.\.\///) {
+      if ($path =~ s/^\/parent\:\:node\(\)//) {
         # /.. #
         print " "x$parser->{indent},"getting parent (\"$path\")$/" if $parser->{debug};
         return &__parent__ ($parser, $path, $node, $silent);
 
-      } elsif ($path =~ s/^\/(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
-        # /elem[n] #
-        print " "x$parser->{indent},"getting indexed element $1 $2 (\"$path\")$/" if $parser->{debug};
-        return &__indexed_element__ ($parser, $1, $2, $path, $node, $silent);
-
-      } elsif ($path =~ s/^\/(\*|[\w\.\:\-]+)//) {
-        # /elem #
-        print " "x$parser->{indent},"getting element $1 (\"$path\")$/" if $parser->{debug};
-        return &__element__ ($parser, $1, $path, $node, $silent);
-
-      } elsif ($path =~ s/^\/\/(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
-        # //elem[n] #
-        print " "x$parser->{indent},"getting deep indexed element $1 $2 (\"$path\")$/" if $parser->{debug};
-        return &__indexed_element__ ($parser, $1, $2, $path, $node, $silent, "deep");
-
-      } elsif ($path =~ s/^\/\/(\*|[\w\.\:\-]+)//) {
-        # //elem #
-        print " "x$parser->{indent},"getting deep element $1 (\"$path\")$/" if $parser->{debug};
-        return &__element__ ($parser, $1, $path, $node, $silent, "deep");
-
-      } elsif ($path =~ s/^\/\@(\*|[\w\.\:\-]+)//) {
+      } elsif ($path =~ s/^\/attribute\:\:(\*|[\w\.\:\-]+)//) {
         # /@attr #
         print " "x$parser->{indent},"getting attribute $1 (\"$path\")$/" if $parser->{debug};
         return &__attribute__ ($parser, $1, $path, $node, $silent);
 
-      } elsif ($path =~ s/^\/text\(\)//) {
+      } elsif ($path =~ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
+        # //elem[n] #
+        print " "x$parser->{indent},"getting deep indexed element $1 $2 (\"$path\")$/" if $parser->{debug};
+        return &__indexed_element__ ($parser, $1, $2, $path, $node, $silent, "deep");
+
+      } elsif ($path =~ s/^\/descendant\-or\-self\:\:node\(\)\/(\*|[\w\.\:\-]+)//) {
+        # //elem #
+        print " "x$parser->{indent},"getting deep element $1 (\"$path\")$/" if $parser->{debug};
+        return &__element__ ($parser, $1, $path, $node, $silent, "deep");
+
+      } elsif ($path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//) {
+        # /elem[n] #
+        print " "x$parser->{indent},"getting indexed element $2 $3 (\"$path\")$/" if $parser->{debug};
+        return &__indexed_element__ ($parser, $2, $3, $path, $node, $silent);
+
+      } elsif ($path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)//) {
+        # /elem #
+        print " "x$parser->{indent},"getting element $2 (\"$path\")$/" if $parser->{debug};
+        return &__element__ ($parser, $2, $path, $node, $silent);
+
+      } elsif ($path =~ s/^\/(child\:\:|)text\(\)//) {
         # /text() #
         print " "x$parser->{indent},"getting text (\"$path\")$/" if $parser->{debug};
-        die;
-        return &__get_text_nodes__ ($parser, $path, $node, $silent);
+        return &__get_nodes__ ($parser, $TEXT_NODE, $path, $node, $silent);
 
-      } elsif ($path =~ s/^\/processing-instruction\(\)//) {
+      } elsif ($path =~ s/^\/(child\:\:|)processing-instruction\(\)//) {
         # /processing-instruction() #
         print " "x$parser->{indent},"getting processing instruction (\"$path\")$/" if $parser->{debug};
         return &__get_nodes__ ($parser, $PROCESSING_INSTRUCTION_NODE, $path, $node, $silent);
 
-      } elsif ($path =~ s/^\/comment\(\)//) {
+      } elsif ($path =~ s/^\/(child\:\:|)comment\(\)//) {
         # /comment() #
         print " "x$parser->{indent},"getting comment (\"$path\")$/" if $parser->{debug};
         return &__get_nodes__ ($parser, $COMMENT_NODE, $path, $node, $silent);
@@ -1339,7 +1451,7 @@ sub _get_node_set {
         my ($parser, $attribute, $path, $node, $silent) = @_;
 
         if ($attribute eq '*') {
-          $node = $node->getAttributes->getValues;
+          $node = [$node->getAttributes->getValues];
         
           $parser->{indent} += $parser->{indent_incr};
             if ($node) {
@@ -1374,27 +1486,6 @@ sub _get_node_set {
 	  if ($child->getNodeType == $node_type) {
 	    $result = [@$result, &__get_node_set__ ($parser, $path, [$child], $silent)];
 	  }
-	}
-        $parser->{indent} -= $parser->{indent_incr};
-	
-	if (! @$result) {
-	  print " "x$parser->{indent},"failed!$/" if $parser->{debug};
-        }
-        
-	return $result;
-    }
-
-    sub __get_text_nodes__ {
-        my ($parser, $path, $node, $silent) = @_;
-
-        my $result = [];
-
-        $parser->{indent} += $parser->{indent_incr};
-        foreach my $child ($node->getChildNodes) {
-           my $type = $child->getNodeType;
-           if ($type == $TEXT_NODE || $type == 1.1*$CDATA_SECTION_NODE || $type == $ENTITY_REFERENCE_NODE) {
-	      $result = [@$result, &__get_node_set__ ($parser, $path, [$child], $silent)];
-	   }
 	}
         $parser->{indent} -= $parser->{indent_incr};
 	
@@ -1853,7 +1944,7 @@ __END__
 
 =head1 NAME
 
-XML::XSLT - A perl module for processing XSLT
+XML::XSLT v0.22 - A perl module for processing XSLT
 
 =head1 SYNOPSIS
 
