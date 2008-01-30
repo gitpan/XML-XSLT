@@ -1,12 +1,17 @@
-#XXXXXXX This is a prototype!!!  It will change in the future!!! XXXXX#
-name:         XML-XSLT
-version:      0.48
-version_from: lib/XML/XSLT.pm
-installdirs:  site
-requires:
-    Test::More:                    0.33
+--- #YAML:1.0
+name:                XML-XSLT
+version:             0.50_1
+abstract:            Conversion of XML files with XSLT.
+license:             ~
+author:              
+    - Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)
+generated_by:        ExtUtils::MakeMaker version 6.42
+distribution_type:   module
+requires:     
+    Test::More:                    0.7
     XML::DOM:                      1.25
+    XML::DOM::XPath:               0.10
     XML::Parser:                   2.23
-
-distribution_type: module
-generated_by: ExtUtils::MakeMaker version 6.13
+meta-spec:
+    url:     http://module-build.sourceforge.net/META-spec-v1.3.html
+    version: 1.3

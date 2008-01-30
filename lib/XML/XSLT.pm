@@ -6,6 +6,31 @@
 # and Egon Willighagen, egonw@sci.kun.nl
 #
 #    $Log: XSLT.pm,v $
+#    Revision 1.33  2008/01/30 13:49:48  gellyfish
+#    Interim release
+#
+#    Revision 1.32  2007/10/04 18:37:11  gellyfish
+#    updated
+#
+#    Revision 1.31  2007/05/25 15:16:18  gellyfish
+#    * Merged in some changes
+#
+#    Revision 1.30  2006/11/17 21:16:45  gellyfish
+#    Check in interim fix for literal variable at top level
+#
+#    Revision 1.29  2005/12/08 12:53:39  gellyfish
+#    Added patch from andy_bach@wiwb.usourts.gov to fix warning in __evaluate_test__
+#
+#    Revision 1.28  2004/06/02 07:48:34  gellyfish
+#    Fixed the check if $args{Source} is an 'XML::DOM::Document' from John
+#    Bywater.
+#
+#    Revision 1.27  2004/04/02 10:48:35  gellyfish
+#    Fixing disposal bug
+#
+#    Revision 1.26  2004/02/20 09:24:26  gellyfish
+#    * Fixes to variables
+#
 #    Revision 1.25  2004/02/19 08:38:40  gellyfish
 #    * Fixed overlapping attribute-sets
 #    * Allow multiple nodes for processing-instruction() etc
@@ -89,6 +114,7 @@ package XML::XSLT;
 use strict;
 
 use XML::DOM 1.25;
+use XML::DOM::XPath;
 use LWP::Simple qw(get);
 use URI;
 use Cwd;
@@ -102,7 +128,7 @@ use constant NS_XHTML => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.48';
+$VERSION = '0.50_1';
 
 @ISA       = qw( Exporter );
 @EXPORT_OK = qw( &transform &serve );
@@ -111,6 +137,88 @@ my %deprecation_used;
 
 ######################################################################
 # PUBLIC DEFINITIONS
+
+=head1 SYNOPSIS
+
+ use XML::XSLT;
+
+ my $xslt = XML::XSLT->new ($xsl, warnings => 1);
+
+ $xslt->transform ($xmlfile);
+ print $xslt->toString;
+
+ $xslt->dispose();
+
+=head1 DESCRIPTION
+
+This module implements the W3C's XSLT specification. The goal is full
+implementation of this spec, but we have not yet achieved
+that. However, it already works well.  See L<XML::XSLT Commands> for
+the current status of each command.
+
+XML::XSLT makes use of XML::DOM and LWP::Simple, while XML::DOM
+uses XML::Parser.  Therefore XML::Parser, XML::DOM and LWP::Simple
+have to be installed properly for XML::XSLT to run.
+
+=head1 Specifying Sources
+
+The stylesheets and the documents may be passed as filenames, file
+handles regular strings, string references or DOM-trees.  Functions
+that require sources (e.g. new), will accept either a named parameter
+or simply the argument.
+
+Either of the following are allowed:
+
+ my $xslt = XML::XSLT->new($xsl);
+ my $xslt = XML::XSLT->new(Source => $xsl);
+
+In documentation, the named parameter `Source' is always shown, but it
+is never required.
+
+=head2 METHODS
+
+=over 4
+
+=cut
+
+=item new(Source => $xml [, %args])
+
+Returns a new XSLT parser object.  Valid flags are:
+
+=over 2
+
+=item DOMparser_args
+
+Hashref of arguments to pass to the XML::DOM::Parser object's parse
+method.
+
+=item variables
+
+Hashref of variables and their values for the stylesheet.
+
+=item base
+
+Base of URL for file inclusion.
+
+=item debug
+
+Turn on debugging messages.
+
+=item warnings
+
+Turn on warning messages.
+
+=item indent
+
+Starting amount of indention for debug messages.  Defaults to 0.
+
+=item indent_incr
+
+Amount to indent each level of debug message.  Defaults to 1.
+
+=back
+
+=cut
 
 sub new
 {
@@ -171,6 +279,13 @@ sub use_deprecated
 
 sub DESTROY { }    # Cuts out random dies on includes
 
+=item default_xml_version
+
+Gets and/or sets the default XML version used in the output documents,
+this will almost certainly want to be 1.0
+
+=cut
+
 sub default_xml_version
 {
     my ( $self, $xml_version ) = @_;
@@ -182,6 +297,45 @@ sub default_xml_version
 
     return $self->{DEFAULT_XML_VERSION} ||= '1.0';
 }
+
+=item serve(Source => $xml [, %args])
+
+Processes the given XML through the stylesheet.  Returns a string
+containg the result.  Example:
+
+  use XML::XSLT qw(serve);
+
+  $xslt = XML::XSLT->new($xsl);
+  print $xslt->serve $xml;
+
+=over 4
+
+=item http_headers
+
+If true, then prepends the appropriate HTTP headers (e.g. Content-Type,
+Content-Length);
+
+Defaults to true.
+
+=item xml_declaration
+
+If true, then the result contains the appropriate <?xml?> header.
+
+Defaults to true.
+
+=item xml_version
+
+The version of the XML.
+
+Defaults to 1.0.
+
+=item doctype
+
+The type of DOCTYPE this document is.  Defaults to SYSTEM.
+
+=back
+
+=cut
 
 sub serve
 {
@@ -238,6 +392,13 @@ sub serve
     return $ret;
 }
 
+=item xml_declaration
+
+Will return an XML declaration element based on the output encoding and
+XML version.
+
+=cut
+
 sub xml_declaration
 {
     my ( $self, $xml_version, $output_encoding ) = @_;
@@ -248,6 +409,16 @@ sub xml_declaration
     return qq{<?xml version="$xml_version" encoding="$output_encoding"?>};
 }
 
+=item output_encoding
+
+Gets and/or sets the output encoding that is used in the xml declaration
+and elsewhere (default: UTF-8)
+
+=cut
+
+# defaulting blindly to UTF-8 is a bug, this should also be used to
+# appropriately set the encoding of the output.
+#
 sub output_encoding
 {
     my ( $self, $encoding ) = @_;
@@ -283,6 +454,13 @@ sub doctype_public
 
     return $self->{DOCTYPE_PUBLIC};
 }
+
+=item result_document
+
+An accessor for the XML::DOM object that the transformed document is
+assembled into.
+
+=cut
 
 sub result_document()
 {
@@ -321,6 +499,25 @@ sub warn
       if $self->{WARNINGS} && !$self->{DEBUG};
 }
 
+=item open_xml(Source => $xml [, %args])
+
+Gives the XSLT object new XML to process.  Returns an XML::DOM object
+corresponding to the XML.
+
+=over 4
+
+=item base
+
+The base URL to use for opening documents.
+
+=item parser_args
+
+Arguments to pase to the parser.
+
+=back
+
+=cut
+
 sub open_xml
 {
     my $self  = shift;
@@ -333,8 +530,10 @@ sub open_xml
         $self->xml_document()->dispose;
     }
 
-    $self->{XML_PASSED_AS_DOM} = 1
-      if ref $args{Source} eq 'XML::DOM::Document';
+    if (ref $args{Source} && UNIVERSAL::isa($args{Source}, 'XML::DOM::Document' ) )
+    {
+       $self->{XML_PASSED_AS_DOM} = 1;
+    }
 
     if ( defined $self->result_document() )
     {
@@ -357,8 +556,15 @@ sub open_xml
     $self->{XML_BASE} =
       dirname( URI->new_abs( $args{Source}, $self->{XML_BASE} )->as_string )
       . '/';
-    $self->result_document( $self->xml_document()->createDocumentFragment );
+    $self->result_document( $self->xml_document()->createDocumentFragment());
 }
+
+=item xml_document
+
+Gets and/or sets the XML::DOM object corresponding to the XML document
+being processed. The document might be altered during processing.
+
+=cut
 
 sub xml_document
 {
@@ -372,18 +578,45 @@ sub xml_document
     return $self->{XML_DOCUMENT};
 }
 
+=item open_xsl(Source => $xml, [, %args])
+
+Gives the XSLT object a new stylesheet to use in processing XML.
+Returns an XML::DOM object corresponding to the stylesheet.  Any
+arguments present are passed to the XML::DOM::Parser.
+
+=over 4
+
+=item base
+
+The base URL to use for opening documents.
+
+=item parser_args
+
+Arguments to pase to the parser.
+
+=back
+
+=cut
+
 sub open_xsl
 {
     my $self  = shift;
     my $class = ref $self || croak "Not a method call";
     my %args  = $self->__parse_args(@_);
 
+
+
     $self->xsl_document()->dispose
       if not $self->{XSL_PASSED_AS_DOM}
       and defined $self->xsl_document();
 
-    $self->{XSL_PASSED_AS_DOM} = 1
-      if ref $args{Source} eq 'XML::DOM::Document';
+
+
+    if ( ref $args{Source} && UNIVERSAL::isa($args{Source}, 'XML::DOM::Document' ))
+    {
+       $self->{XSL_PASSED_AS_DOM} = 1
+    }  
+
 
     # open new document  # open new document
     $self->debug("opening xsl...");
@@ -396,6 +629,9 @@ sub open_xsl
         parser_args => { %{ $self->{PARSER_ARGS} }, %{ $args{parser_args} } },
     );
 
+
+    $self->{ORIG_XSL_DOC} = $xsl_document;
+
     $self->xsl_document($xsl_document);
 
     $self->{XSL_BASE} =
@@ -404,6 +640,14 @@ sub open_xsl
 
     $self->__preprocess_stylesheet;
 }
+
+=item xsl_document
+
+Gets and/or sets the XML::DOM object corresponding to the XSLT document
+that is being used for processing, this will be altered during processing
+so should not be an object that needs to be reused elsewhere.
+
+=cut
 
 sub xsl_document
 {
@@ -516,8 +760,8 @@ sub __preprocess_stylesheet
 
    # Why is this here when __get_first_element does, apparently, the same thing?
    # Because, in __get_stylesheet we warp the document.
-    $self->top_xsl_node( $self->xsl_document()->getFirstChild );
     $self->__expand_xsl_includes;
+    $self->_top_xsl_node( $self->xsl_document()->getFirstChild );
     $self->__extract_top_level_variables;
 
     $self->__add_default_templates;
@@ -526,7 +770,7 @@ sub __preprocess_stylesheet
     $self->__set_xsl_output;
 }
 
-sub top_xsl_node
+sub _top_xsl_node
 {
     my ( $self, $top_xsl_node ) = @_;
 
@@ -606,8 +850,9 @@ sub __get_first_element
     my ($self) = @_;
     my $node = $self->xsl_document()->getFirstChild();
 
-    $node = $node->getNextSibling until ref $node eq 'XML::DOM::Element';
-    $self->top_xsl_node($node);
+    $node = $node->getNextSibling until $node->isa( 'XML::DOM::Element' );
+	
+    $self->_top_xsl_node($node);
 }
 
 # private auxiliary function #
@@ -615,11 +860,11 @@ sub __extract_namespaces
 {
     my ($self) = @_;
 
-    my $attr = $self->top_xsl_node()->getAttributes;
+    my $attr = $self->_top_xsl_node()->getAttributes;
     if ( defined $attr )
     {
         foreach
-          my $attribute ( $self->top_xsl_node()->getAttributes->getValues )
+          my $attribute ( $self->_top_xsl_node()->getAttributes->getValues )
         {
             my ( $pre, $post ) = split( ":", $attribute->getName, 2 );
             my $value = $attribute->getValue;
@@ -665,7 +910,7 @@ sub __extract_namespaces
     }
     if ( not defined $self->default_ns() )
     {
-        my ($dns) = split( ':', $self->top_xsl_node()->getTagName );
+        my ($dns) = split( ':', $self->_top_xsl_node()->getTagName );
         $self->default_ns($dns);
     }
     $self->debug( "Default Namespace: `" . $self->default_ns() . "'" );
@@ -676,6 +921,12 @@ sub __extract_namespaces
     # ** FIXME: is this right?
     $self->{NAMESPACE}->{ $self->default_ns() }->{namespace} ||= NS_XHTML;
 }
+
+=item default_ns
+
+Gets and/or sets the default namespace to be used in the XSL
+
+=cut
 
 sub default_ns
 {
@@ -705,28 +956,33 @@ sub __expand_xsl_includes
 {
     my $self = shift;
 
-    foreach my $include_node ( $self->top_xsl_node()
+    $self->debug("IN INCLUDE");
+    $self->debug($self->xsl_ns());
+    foreach my $include_node ( $self->xsl_document()   # _top_xsl_node()
         ->getElementsByTagName( $self->xsl_ns() . "include" ) )
     {
         my $include_file = $include_node->getAttribute('href');
 
+        $self->debug("including - $include_file");
         die "include tag carries no selection!"
           unless defined $include_file;
 
         my $include_doc;
+        my $tmp_doc;
         eval {
-            my $tmp_doc =
+            $tmp_doc =
               $self->__open_by_filename( $include_file, $self->{XSL_BASE} );
-            $include_doc = $tmp_doc->getFirstChild->cloneNode(1);
-            $tmp_doc->dispose;
+            $include_doc = $tmp_doc->getFirstChild();
+            #$tmp_doc->removeChild($include_doc);
         };
         die "parsing of $include_file failed: $@"
           if $@;
 
         $self->debug("inserting `$include_file'");
-        $include_doc->setOwnerDocument( $self->xsl_document() );
-        $self->top_xsl_node()->replaceChild( $include_doc, $include_node );
-        $include_doc->dispose;
+        #$self->xsl_document()->setOwnerDocument($include_doc);
+        $include_doc->setOwnerDocument( $self->{ORIG_XSL_DOC} );
+        $self->xsl_document()->replaceChild( $include_doc, $include_node );
+        #$include_doc->dispose;
     }
 }
 
@@ -755,7 +1011,11 @@ sub __extract_top_level_variables
             {
 
                 my $name = $child->getAttribute("name");
-                if ($name)
+                if ( exists $self->{VARIABLES}->{$name} )
+                {
+                   $self->debug("$tag $name already set to '$self->{VARIABLES}->{$name}'");
+                }
+                elsif ($name)
                 {
 						  $self->debug("got $tag called $name");
                     my $value = $child->getAttributeNode("select");
@@ -763,13 +1023,13 @@ sub __extract_top_level_variables
                     {
 								if ( $child->getChildNodes()->getLength() )
 								{
-                           my $result =
-                              $self->xml_document()->createDocumentFragment;
+                           my $result = XML::DOM::DocumentFragment->new();
+                              #$self->xml_document()->createDocumentFragment;
                            $self->_evaluate_template( $child,
                                                       $self->xml_document(), 
 																		'', 
 																		$result );
-                           $value = $self->_string($result);
+                           $value = $self->__string__($result);
                            $result->dispose();
 								}
                     }
@@ -802,7 +1062,7 @@ sub __extract_top_level_variables
 sub __add_default_templates
 {
     my $self = $_[0];
-    my $doc  = $self->top_xsl_node()->getOwnerDocument;
+    my $doc  = $self->_top_xsl_node()->getOwnerDocument;
 
     # create template for '*' and '/'
     my $elem_template = $doc->createElement( $self->xsl_ns() . "template" );
@@ -828,12 +1088,18 @@ sub __add_default_templates
     $self->debug("adding default templates to stylesheet");
 
     # add them to the stylesheet
-    $self->xsl_document()->insertBefore( $pi_template, $self->top_xsl_node );
+    $self->xsl_document()->insertBefore( $pi_template, $self->_top_xsl_node );
     $self->xsl_document()
-      ->insertBefore( $attr_template, $self->top_xsl_node() );
+      ->insertBefore( $attr_template, $self->_top_xsl_node() );
     $self->xsl_document()
-      ->insertBefore( $elem_template, $self->top_xsl_node() );
+      ->insertBefore( $elem_template, $self->_top_xsl_node() );
 }
+
+=item
+
+Returns the templates from the XSL document.
+
+=cut
 
 sub templates
 {
@@ -843,13 +1109,15 @@ sub templates
     {
         $self->{TEMPLATE} = $templates;
     }
-
+    
+    $self->debug("templates() called from : " . (caller(1))[3]);
     unless ( exists $self->{TEMPLATE} )
     {
         $self->{TEMPLATE} = [];
         my $xsld = $self->xsl_document();
         my $tag  = $self->xsl_ns() . 'template';
 
+        $self->debug("getting $tag");
         @{ $self->{TEMPLATE} } = $xsld->getElementsByTagName($tag);
     }
 
@@ -866,6 +1134,7 @@ sub __cache_templates
 
     foreach my $template ( reverse $self->templates() )
     {
+       next unless $template->getParentNode();
         if ( $template->getParentNode->getTagName =~
             /^([\w\.\-]+\:){0,1}(stylesheet|transform|include)/ )
         {
@@ -876,6 +1145,7 @@ sub __cache_templates
         }
     }
 }
+
 
 =item xsl_output_method
 
@@ -1003,6 +1273,13 @@ sub omit_xml_declaration
     return exists $self->{OMIT_XML_DECL} ? $self->{OMIT_XML_DECL} : 0;
 }
 
+=item cdata_sections
+
+Get or set the element names supplied via the cdata-section-elements
+attribute (i.e. a space separated list of element names.)
+
+=cut
+
 sub cdata_sections
 {
     my ( $self, $cdata_sections ) = @_;
@@ -1041,6 +1318,13 @@ sub is_cdata_section
 
     return exists $cdata_sections{$tagname} ? 1 : 0;
 }
+
+=item output_version
+
+Gets and/or sets the XML version that will be used for the output
+(defaults to default_xml_version())
+
+=cut
 
 sub output_version
 {
@@ -1169,6 +1453,14 @@ sub open_project
     $self->_outdent();
 }
 
+=item transform(Source => $xml [, %args])
+
+Processes the given XML through the stylesheet.  Returns an XML::DOM
+object corresponding to the transformed XML.  Any arguments present
+are passed to the XML::DOM::Parser.
+
+=cut
+
 sub transform
 {
     my $self         = shift;
@@ -1205,6 +1497,13 @@ sub transform
     $self->result_document()->normalize();
     return $self->result_document();
 }
+
+=item process(%variables)
+
+Processes the previously loaded XML through the stylesheet using the
+variables set in the argument.
+
+=cut
 
 sub process
 {
@@ -1288,6 +1587,13 @@ sub _my_print_text
     }
 }
 
+=item toString
+
+Returns the result of transforming the XML with the stylesheet as a
+string.
+
+=cut
+
 sub toString
 {
     my $self = $_[0];
@@ -1295,17 +1601,39 @@ sub toString
     local $^W;
     local *XML::DOM::Text::print = \&_my_print_text;
 
-    my $string = $self->result_document()->toString();
+    my $string = '';
 
+    if (defined $self->result_document() )
+    {
+      $string = $self->result_document()->toString();
+    }
     return $string;
 }
+
+=item to_dom
+
+Returns the result of transforming the XML with the stylesheet as an
+XML::DOM object.
+
+=cut
 
 sub to_dom
 {
     my ($self) = @_;
 
-    return $self->result_document();
+    my $document = XML::DOM::Document->new();
+
+    my $dom = $self->result_document()->cloneNode(1);
+    $dom->setOwnerDocument($document);
+    $document->appendChild($dom);
+    return $document;
 }
+
+=item media_type
+
+Returns the media type (aka mime type) of the object.
+
+=cut
 
 sub media_type
 {
@@ -1382,6 +1710,12 @@ sub print_output
     }
 }
 
+=item print_result
+
+An alias for print_output
+
+=cut
+
 *print_result = *print_output;
 
 sub doctype
@@ -1415,24 +1749,36 @@ sub doctype
     return $doctype;
 }
 
+=item dispose
+
+Executes the C<dispose> method on each XML::DOM object.
+
+=cut
+
 sub dispose
 {
 
-    #my $self = $_[0];
-
-    #$_[0]->[PARSER] = undef if (defined $_[0]->[PARSER]);
     $_[0]->result_document()->dispose if ( defined $_[0]->result_document() );
 
-    # only dispose xml and xsl when they were not passed as DOM
-    if ( not defined $_[0]->{XML_PASSED_AS_DOM}
-        && defined $_ - [0]->xml_document() )
+    if ( (not defined $_[0]->{XML_PASSED_AS_DOM} )
+          and defined $_[0]->xml_document() )
     {
         $_[0]->xml_document()->dispose;
     }
-    if ( not defined $_[0]->{XSL_PASSED_AS_DOM}
-        && defined $_ - [0]->xsl_document() )
+    
+    if ( (not defined $_[0]->{XSL_PASSED_AS_DOM} )
+          and defined $_[0]->xsl_document() )
     {
-        $_[0]->xsl_document()->dispose;
+	    $_[0]->xsl_document()->dispose;
+    }
+
+    $_[0]->_top_xsl_node()->dispose() if defined $_[0]->_top_xsl_node();
+
+
+
+    foreach my $topkey ( %{$_[0]} )
+    {
+        $_[0]->{$topkey} = undef if defined $topkey;
     }
 
     $_[0] = undef;
@@ -1481,7 +1827,7 @@ sub __open_document
             $self->debug("Opening Stringref");
             $doc = $self->{PARSER}->parse( ${ $args{Source} } );
         }
-        elsif ( $ref eq "XML::DOM::Document" )
+        elsif ( $args{Source}->isa( 'XML::DOM::Document' ) )
         {
 
             # DOM object
@@ -1522,7 +1868,7 @@ sub __open_by_filename
 
     my $file = get( URI->new_abs( $filename, $base ) );
 
-    return $self->{PARSER}->parse( $file, %{ $self->{PARSER_ARGS} } );
+    return $self->{PARSER}->parse( $file, defined $self->{PARSER_ARGS} ? %{ $self->{PARSER_ARGS} } : undef );
 }
 
 sub _match_template
@@ -1550,6 +1896,9 @@ sub _match_template
 
   # note that the order of @template_matches is the reverse of $self->{TEMPLATE}
     my $count = @template_matches;
+
+    $self->debug("matches: @template_matches");
+
     foreach my $original_match (@template_matches)
     {
 
@@ -2073,9 +2422,11 @@ qq{selecting template $select for child type $ref of "$current_xml_selection_pat
 
     $self->_indent();
 
-    my $child_xml_selection_path = "$current_xml_selection_path/$select";
+    foreach my $select_part ( split /\|/, $select )
+    {
+    my $child_xml_selection_path = "$current_xml_selection_path/$select_part";
     my $template                 =
-      $self->_match_template( "match", $select, $count,
+      $self->_match_template( "match", $select_part, $count,
         $child_xml_selection_path );
 
     if ($template)
@@ -2089,6 +2440,8 @@ qq{selecting template $select for child type $ref of "$current_xml_selection_pat
     {
         $self->debug("skipping template selection...");
     }
+
+ }
 
     $self->_outdent();
 }
@@ -2553,6 +2906,11 @@ sub _get_node_set
     $current_node ||= $root_node;
     $silent       ||= 0;
 
+    $self->{VARIABLES} ||= {};
+    $variables ||= {};
+
+    ## JNS name() stuff here ?
+    #
 	 %{$variables} = (%{$self->{VARIABLES}}, %{$variables});
     $self->debug(qq{getting node-set "$path" from "$current_path"});
 
@@ -2633,41 +2991,46 @@ sub _get_node_set
               $self->__open_by_filename( $filename, $self->{XSL_BASE} );
         }
 
-        if ( $path =~ /^\// )
-        {
+		  my $return_nodes = [];
 
-            # start from the root #
-            $current_node = $root_node;
-        }
-        elsif ( $path =~ /^self\:\:node\(\)\// )
-        {    #'#"#'#"
+		  foreach my $path_part ( split(/\|/, $path ) )
+		  {
+			  $self->debug("path_part: $path_part");
+           if ( $path_part =~ /^\// )
+           {
+
+               # start from the root #
+               $current_node = $root_node;
+           }
+           elsif ( $path_part =~ /^self\:\:node\(\)\// )
+           {    #'#"#'#"
              # remove preceding dot from './etc', which is expanded to 'self::node()'
              # at the top of this subroutine #
-            $path =~ s/^self\:\:node\(\)//;
+               $path_part =~ s/^self\:\:node\(\)//;
+           }
+           else
+           {
+
+               # to facilitate parsing, precede path with a '/' #
+               $path_part = "/$path_part";
+           }
+
+           $self->debug(qq{using "$path_part":});
+
+           if ( $path_part eq '/' )
+           {
+               push @{$return_nodes}, @{$current_node};
+           }
+           else
+           {
+               push @{$return_nodes},@{$self->__get_node_set__( $path_part, 
+																	             [$current_node],
+																	             $silent )};
+           }
+
+           $self->_outdent();
         }
-        else
-        {
-
-            # to facilitate parsing, precede path with a '/' #
-            $path = "/$path";
-        }
-
-        $self->debug(qq{using "$path":});
-
-        if ( $path eq '/' )
-        {
-            $current_node = [$current_node];
-        }
-        else
-        {
-            $current_node = $self->__get_node_set__( $path, 
-																	  [$current_node], 
-																	  $silent );
-        }
-
-        $self->_outdent();
-
-        return $current_node;
+        return $return_nodes;
     }
 }
 
@@ -2678,23 +3041,25 @@ sub __get_node_set__
 
     # a Qname (?) should actually be: [a-Z_][\w\.\-]*\:[a-Z_][\w\.\-]*
 
+	 my $list = [];
+
     if ( $path eq "" )
     {
 
-        $self->debug("node found!");
-        return $node;
+       $self->debug("node found!");
+       push @{$list}, @{$node};
 
     }
     else
     {
-        my $list = [];
-        foreach my $item (@$node)
-        {
-            my $sublist = $self->__try_a_step__( $path, $item, $silent );
-            push( @$list, @$sublist );
-        }
-        return $list;
-    }
+           foreach my $item (@$node)
+           {
+               my $sublist = $self->__try_a_step__( $path, $item, $silent );
+               push @{$list}, @{$sublist} ;
+           }
+	}
+
+   return $list;
 }
 
 sub __try_a_step__
@@ -2709,7 +3074,7 @@ sub __try_a_step__
 
         # /.. #
         $self->debug(qq{getting parent ("$path")});
-        return &__parent__( $self, $path, $node, $silent );
+        return $self->__parent__(  $path, $node, $silent );
 
     }
     elsif ( $path =~ s/^\/attribute\:\:(\*|[\w\.\:\-]+)// )
@@ -2717,7 +3082,7 @@ sub __try_a_step__
 
         # /@attr #
         $self->debug(qq{getting attribute `$1' ("$path")});
-        return &__attribute__( $self, $1, $path, $node, $silent );
+        return $self->__attribute__( $1, $path, $node, $silent );
 
     }
     elsif ( $path =~
@@ -2867,7 +3232,7 @@ sub __element__
     $self->_indent();
     if (@$node)
     {
-        $node = &__get_node_set__( $self, $path, $node, $silent );
+        $node = $self->__get_node_set__( $path, $node, $silent );
     }
     else
     {
@@ -2881,11 +3246,13 @@ sub __element__
 sub __attribute__
 {
     my ( $self, $attribute, $path, $node, $silent ) = @_;
+
+    $self->_indent();
+
     if ( $attribute eq '*' )
     {
         $node = [ $node->getAttributes->getValues ];
 
-        $self->_indent();
         if ($node)
         {
             $node = &__get_node_set__( $self, $path, $node, $silent );
@@ -2894,13 +3261,11 @@ sub __attribute__
         {
             $self->debug("failed!");
         }
-        $self->_outdent();
     }
     else
     {
         $node = $node->getAttributeNode($attribute);
 
-        $self->_indent();
         if ($node)
         {
             $node = &__get_node_set__( $self, $path, [$node], $silent );
@@ -2910,8 +3275,9 @@ sub __attribute__
             $self->debug("failed!");
             $node = [];
         }
-        $self->_outdent();
     }
+
+    $self->_outdent();
 
     return $node;
 }
@@ -3206,13 +3572,18 @@ sub __evaluate_test__
        $test_cond = $2;
 		 $expval    = $3;
 	 }
+    else
+    {
+       $self->debug("no match for test [$test]");
+       return '';
+    }
 	 $self->debug("Test LHS: $lhs");
     if ( $lhs =~ /^\@([\w\.\:\-]+)$/ )
     {
 		  $self ->debug("Attribute: $1");
         $content = $node->getAttribute($1);
     }
-    elsif ( $lhs =~ /^([\w\.\:\-]+)$/ )
+    elsif ( $lhs =~ /^([\$\w\.\:\-]+)$/ )
     {
 		  $self ->debug("Path: $1");
         my $test_path = $1;
@@ -3578,185 +3949,6 @@ sub fix_attribute_value
 
 __DATA__
 
-=head1 SYNOPSIS
-
- use XML::XSLT;
-
- my $xslt = XML::XSLT->new ($xsl, warnings => 1);
-
- $xslt->transform ($xmlfile);
- print $xslt->toString;
-
- $xslt->dispose();
-
-=head1 DESCRIPTION
-
-This module implements the W3C's XSLT specification. The goal is full
-implementation of this spec, but we have not yet achieved
-that. However, it already works well.  See L<XML::XSLT Commands> for
-the current status of each command.
-
-XML::XSLT makes use of XML::DOM and LWP::Simple, while XML::DOM
-uses XML::Parser.  Therefore XML::Parser, XML::DOM and LWP::Simple
-have to be installed properly for XML::XSLT to run.
-
-=head1 Specifying Sources
-
-The stylesheets and the documents may be passed as filenames, file
-handles regular strings, string references or DOM-trees.  Functions
-that require sources (e.g. new), will accept either a named parameter
-or simply the argument.
-
-Either of the following are allowed:
-
- my $xslt = XML::XSLT->new($xsl);
- my $xslt = XML::XSLT->new(Source => $xsl);
-
-In documentation, the named parameter `Source' is always shown, but it
-is never required.
-
-=head2 METHODS
-
-=over 4
-
-=item new(Source => $xml [, %args])
-
-Returns a new XSLT parser object.  Valid flags are:
-
-=over 2
-
-=item DOMparser_args
-
-Hashref of arguments to pass to the XML::DOM::Parser object's parse
-method.
-
-=item variables
-
-Hashref of variables and their values for the stylesheet.
-
-=item base
-
-Base of URL for file inclusion.
-
-=item debug
-
-Turn on debugging messages.
-
-=item warnings
-
-Turn on warning messages.
-
-=item indent
-
-Starting amount of indention for debug messages.  Defaults to 0.
-
-=item indent_incr
-
-Amount to indent each level of debug message.  Defaults to 1.
-
-=back
-
-=item open_xml(Source => $xml [, %args])
-
-Gives the XSLT object new XML to process.  Returns an XML::DOM object
-corresponding to the XML.
-
-=over 4
-
-=item base
-
-The base URL to use for opening documents.
-
-=item parser_args
-
-Arguments to pase to the parser.
-
-=back
-
-=item open_xsl(Source => $xml, [, %args])
-
-Gives the XSLT object a new stylesheet to use in processing XML.
-Returns an XML::DOM object corresponding to the stylesheet.  Any
-arguments present are passed to the XML::DOM::Parser.
-
-=over 4
-
-=item base
-
-The base URL to use for opening documents.
-
-=item parser_args
-
-Arguments to pase to the parser.
-
-=back
-
-=item process(%variables)
-
-Processes the previously loaded XML through the stylesheet using the
-variables set in the argument.
-
-=item transform(Source => $xml [, %args])
-
-Processes the given XML through the stylesheet.  Returns an XML::DOM
-object corresponding to the transformed XML.  Any arguments present
-are passed to the XML::DOM::Parser.
-
-=item serve(Source => $xml [, %args])
-
-Processes the given XML through the stylesheet.  Returns a string
-containg the result.  Example:
-
-  use XML::XSLT qw(serve);
-
-  $xslt = XML::XSLT->new($xsl);
-  print $xslt->serve $xml;
-
-=over 4
-
-=item http_headers
-
-If true, then prepends the appropriate HTTP headers (e.g. Content-Type,
-Content-Length);
-
-Defaults to true.
-
-=item xml_declaration
-
-If true, then the result contains the appropriate <?xml?> header.
-
-Defaults to true.
-
-=item xml_version
-
-The version of the XML.
-
-Defaults to 1.0.
-
-=item doctype
-
-The type of DOCTYPE this document is.  Defaults to SYSTEM.
-
-=back
-
-=item toString
-
-Returns the result of transforming the XML with the stylesheet as a
-string.
-
-=item to_dom
-
-Returns the result of transforming the XML with the stylesheet as an
-XML::DOM object.
-
-=item media_type
-
-Returns the media type (aka mime type) of the object.
-
-=item dispose
-
-Executes the C<dispose> method on each XML::DOM object.
-
 =back
 
 =head1 XML::XSLT Commands
@@ -4079,11 +4271,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.25 $
+Revision: $Revision: 1.33 $
    Label: $Name:  $
 
 Last Chg: $Author: gellyfish $ 
-      On: $Date: 2004/02/19 08:38:40 $
+      On: $Date: 2008/01/30 13:49:48 $
 
-  RCS ID: $Id: XSLT.pm,v 1.25 2004/02/19 08:38:40 gellyfish Exp $
+  RCS ID: $Id: XSLT.pm,v 1.33 2008/01/30 13:49:48 gellyfish Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $
