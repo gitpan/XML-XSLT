@@ -1,3 +1,11 @@
+2008-11-21 15:45  gellyfish
+
+	* ChangeLog, lib/XML/XSLT.pm, t/current.t: Made current() work
+
+2008-02-12 14:20  gellyfish
+
+	* t/current.t: Added test from Mike Whittaker
+
 2008-01-30 13:49  gellyfish
 
 	* lib/XML/XSLT.pm, t/open.t, t/select-text.t: Interim release

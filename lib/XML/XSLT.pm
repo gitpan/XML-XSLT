@@ -6,6 +6,9 @@
 # and Egon Willighagen, egonw@sci.kun.nl
 #
 #    $Log: XSLT.pm,v $
+#    Revision 1.34  2008/11/21 15:45:13  gellyfish
+#    Made current() work
+#
 #    Revision 1.33  2008/01/30 13:49:48  gellyfish
 #    Interim release
 #
@@ -128,7 +131,7 @@ use constant NS_XHTML => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.50_1';
+$VERSION = '0.50_2';
 
 @ISA       = qw( Exporter );
 @EXPORT_OK = qw( &transform &serve );
@@ -1800,7 +1803,7 @@ sub __open_document
         my $ref = ref( $args{Source} );
         if (
                !$ref
-            && length $args{Source} < 255
+            && length $args{Source} < 255 && index("\n",$args{Source}) == -1
             && (   -f $args{Source}
                 || lc( substr( $args{Source}, 0, 5 ) ) eq 'http:'
                 || lc( substr( $args{Source}, 0, 6 ) ) eq 'https:'
@@ -2917,6 +2920,7 @@ sub _get_node_set
     $self->_indent();
 
     # expand abbriviated syntax
+    $path =~ s/current\(\s*\)/./g;
     $path =~ s/\@/attribute\:\:/g;
     $path =~ s/\.\./parent\:\:node\(\)/g;
     $path =~ s/\./self\:\:node\(\)/g;
@@ -4271,11 +4275,11 @@ L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
 =cut
 
 Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.33 $
+Revision: $Revision: 1.34 $
    Label: $Name:  $
 
 Last Chg: $Author: gellyfish $ 
-      On: $Date: 2008/01/30 13:49:48 $
+      On: $Date: 2008/11/21 15:45:13 $
 
-  RCS ID: $Id: XSLT.pm,v 1.33 2008/01/30 13:49:48 gellyfish Exp $
+  RCS ID: $Id: XSLT.pm,v 1.34 2008/11/21 15:45:13 gellyfish Exp $
     Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $
