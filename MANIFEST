@@ -1,10 +1,12 @@
-ChangeLog
 Makefile.PL
+Changes
 README
 xslt-parser
 lib/XML/XSLT.pm
 META.yml
 MANIFEST
+examples/ChangeLog.xsl
+examples/xsltdoc.xsl
 examples/XSLT.xsl
 examples/XSLT.html
 examples/XSLT.xml
@@ -63,4 +65,8 @@ t/to_dom.t
 t/variable.t
 t/xsl_cond.t
 t/zeroes.t
+t/bug_76938.t
+t/current.t
+t/select-text.t
+
 META.json                                Module JSON meta-data (added by MakeMaker)

@@ -16,4 +16,4 @@ no_index:
     - inc
 resources:
   repository: https://github.com/jonathanstowe/XML-XSLT.git
-version: 0.50_3
+version: 0.50_4
