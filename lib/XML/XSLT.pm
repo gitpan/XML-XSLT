@@ -4,103 +4,7 @@
 #
 # By Geert Josten, gjosten@sci.kun.nl
 # and Egon Willighagen, egonw@sci.kun.nl
-#
-#    $Log: XSLT.pm,v $
-#    Revision 1.34  2008/11/21 15:45:13  gellyfish
-#    Made current() work
-#
-#    Revision 1.33  2008/01/30 13:49:48  gellyfish
-#    Interim release
-#
-#    Revision 1.32  2007/10/04 18:37:11  gellyfish
-#    updated
-#
-#    Revision 1.31  2007/05/25 15:16:18  gellyfish
-#    * Merged in some changes
-#
-#    Revision 1.30  2006/11/17 21:16:45  gellyfish
-#    Check in interim fix for literal variable at top level
-#
-#    Revision 1.29  2005/12/08 12:53:39  gellyfish
-#    Added patch from andy_bach@wiwb.usourts.gov to fix warning in __evaluate_test__
-#
-#    Revision 1.28  2004/06/02 07:48:34  gellyfish
-#    Fixed the check if $args{Source} is an 'XML::DOM::Document' from John
-#    Bywater.
-#
-#    Revision 1.27  2004/04/02 10:48:35  gellyfish
-#    Fixing disposal bug
-#
-#    Revision 1.26  2004/02/20 09:24:26  gellyfish
-#    * Fixes to variables
-#
-#    Revision 1.25  2004/02/19 08:38:40  gellyfish
-#    * Fixed overlapping attribute-sets
-#    * Allow multiple nodes for processing-instruction() etc
-#    * Added test for for-each
-#
-#    Revision 1.24  2004/02/18 08:34:38  gellyfish
-#    * Fixed select on "comment()" "processing-instruction()" etc
-#    * Added test for select
-#
-#    Revision 1.23  2004/02/17 10:06:12  gellyfish
-#    * Added test for xsl:copy
-#
-#    Revision 1.22  2004/02/17 08:52:29  gellyfish
-#    * 'use-attribute-sets' works in xsl:copy and recursively
-#
-#    Revision 1.21  2004/02/16 10:29:20  gellyfish
-#    * Fixed variable implementation to handle non literals
-#    * refactored test implementation
-#    * added tests
-#
-#    Revision 1.20  2003/06/24 16:34:51  gellyfish
-#    * Allowed both name and match attributes in templates
-#    * Lost redefinition warning with perl 5.8
-#
-#    Revision 1.19  2002/02/18 09:05:14  gellyfish
-#    Refactoring
-#
-#    Revision 1.18  2002/01/16 21:05:27  gellyfish
-#    * Added the manpage as an example
-#    * Started to properly implement omit-xml-declaration
-#
-#    Revision 1.17  2002/01/13 10:35:00  gellyfish
-#    Updated pod
-#
-#    Revision 1.16  2002/01/09 09:17:40  gellyfish
-#    * added test for <xsl:text>
-#    * Stylesheet whitespace stripping as per spec and altered tests ...
-#
-#    Revision 1.15  2002/01/08 10:11:47  gellyfish
-#    * First cut at cdata-section-element
-#    * test for above
-#
-#    Revision 1.14  2001/12/24 16:00:19  gellyfish
-#    * Version released to CPAN
-#
-#    Revision 1.13  2001/12/20 09:21:42  gellyfish
-#    More refactoring
-#
-#    Revision 1.12  2001/12/19 21:06:31  gellyfish
-#    * Some refactoring and style changes
-#
-#    Revision 1.11  2001/12/19 09:11:14  gellyfish
-#    * Added more accessors for object attributes
-#    * Fixed potentially broken usage of $variables in _evaluate_template
-#
-#    Revision 1.10  2001/12/18 09:10:10  gellyfish
-#    Implemented attribute-sets
-#
-#    Revision 1.9  2001/12/17 22:32:12  gellyfish
-#    * Added Test::More to Makefile.PL
-#    * Added _indent and _outdent methods
-#    * Placed __get_attribute_sets in transform()
-#
-#    Revision 1.8  2001/12/17 11:32:08  gellyfish
-#    * Rolled in various patches
-#    * Added new tests
-#
+# and Jonathan Stowe <jns@gellyfish.co.uk>
 #
 ###############################################################################
 
@@ -115,6 +19,7 @@ package XML::XSLT;
 ######################################################################
 
 use strict;
+use warnings;
 
 use XML::DOM 1.25;
 use XML::DOM::XPath;
@@ -131,7 +36,7 @@ use constant NS_XHTML => 'http://www.w3.org/TR/xhtml1/strict';
 
 use vars qw ( $VERSION @ISA @EXPORT_OK $AUTOLOAD );
 
-$VERSION = '0.50_2';
+$VERSION = '0.50_3';
 
 @ISA       = qw( Exporter );
 @EXPORT_OK = qw( &transform &serve );
@@ -1602,6 +1507,7 @@ sub toString
     my $self = $_[0];
 
     local $^W;
+    no warnings 'redefine';
     local *XML::DOM::Text::print = \&_my_print_text;
 
     my $string = '';
@@ -1792,69 +1698,69 @@ sub dispose
 
 sub __open_document
 {
-    my $self = shift;
-    my %args = @_;
-    %args = ( %{ $self->{PARSER_ARGS} }, %args );
-    my $doc;
+   my $self = shift;
+   my %args = @_;
+   %args = ( %{ $self->{PARSER_ARGS} }, %args );
+   my $doc;
 
-    $self->debug("opening document");
+   $self->debug("opening document");
 
-    eval {
-        my $ref = ref( $args{Source} );
-        if (
-               !$ref
-            && length $args{Source} < 255 && index("\n",$args{Source}) == -1
-            && (   -f $args{Source}
-                || lc( substr( $args{Source}, 0, 5 ) ) eq 'http:'
-                || lc( substr( $args{Source}, 0, 6 ) ) eq 'https:'
-                || lc( substr( $args{Source}, 0, 4 ) ) eq 'ftp:'
-                || lc( substr( $args{Source}, 0, 5 ) ) eq 'file:' )
-          )
-        {
+   eval {
+      my $ref = ref( $args{Source} );
+      if ( !$ref )
+      {
+         if (
+               length $args{Source} < 255
+            && $args{Source} !~ /\n/
+            && ( -f $args{Source}
+               || $args{Source} =~ /^(https?|ftp|file):/i )
+           )
+         {
 
             # Filename
             $self->debug("Opening URL");
             $doc = $self->__open_by_filename( $args{Source}, $args{base} );
-        }
-        elsif ( !$ref )
-        {
+         }
+         else
+         {
 
             # String
             $self->debug("Opening String");
             $doc = $self->{PARSER}->parse( $args{Source} );
-        }
-        elsif ( $ref eq "SCALAR" )
-        {
+         }
+      }
+      elsif ( $ref eq "SCALAR" )
+      {
 
-            # Stringref
-            $self->debug("Opening Stringref");
-            $doc = $self->{PARSER}->parse( ${ $args{Source} } );
-        }
-        elsif ( $args{Source}->isa( 'XML::DOM::Document' ) )
-        {
+         # Stringref
+         $self->debug("Opening Stringref");
+         $doc = $self->{PARSER}->parse( ${ $args{Source} } );
+      }
+      elsif ( $args{Source}->isa('XML::DOM::Document') )
+      {
 
-            # DOM object
-            $self->debug("Opening XML::DOM");
-            $doc = $args{Source};
-        }
-        elsif ( $ref eq "GLOB" )
-        {    # This is a file glob
-            $self->debug("Opening GLOB");
-            my $ioref = *{ $args{Source} }{IO};
-            $doc = $self->{PARSER}->parse($ioref);
-        }
-        elsif ( UNIVERSAL::isa( $args{Source}, 'IO::Handle' ) )
-        {    # IO::Handle
-            $self->debug("Opening IO::Handle");
-            $doc = $self->{PARSER}->parse( $args{Source} );
-        }
-        else
-        {
-            $doc = undef;
-        }
-    };
-    die "Error while parsing: $@\n" . $args{Source} if $@;
-    return $doc;
+         # DOM object
+         $self->debug("Opening XML::DOM");
+         $doc = $args{Source};
+      }
+      elsif ( $ref eq "GLOB" )
+      {    # This is a file glob
+         $self->debug("Opening GLOB");
+         my $ioref = *{ $args{Source} }{IO};
+         $doc = $self->{PARSER}->parse($ioref);
+      }
+      elsif ( UNIVERSAL::isa( $args{Source}, 'IO::Handle' ) )
+      {    # IO::Handle
+         $self->debug("Opening IO::Handle");
+         $doc = $self->{PARSER}->parse( $args{Source} );
+      }
+      else
+      {
+         $doc = undef;
+      }
+   };
+   die "Error while parsing: $@\n" . $args{Source} if $@;
+   return $doc;
 }
 
 # private auxiliary function #
@@ -2064,6 +1970,7 @@ sub _evaluate_test
         my $node =
           $self->_get_node_set( $path, $self->xml_document(),
             $current_xml_selection_path, $current_xml_node, $variables );
+        $self->_outdent();
         if (@$node)
         {
             $current_xml_node = $$node[0];
@@ -2072,7 +1979,6 @@ sub _evaluate_test
         {
             return "";
         }
-        $self->_outdent();
     }
     else
     {
@@ -2085,6 +1991,7 @@ sub _evaluate_test
         if (@$node)
         {
             $self->debug("path exists!");
+            $self->_outdent();
             return "true";
         }
         else
@@ -2321,7 +2228,7 @@ qq{applying templates on all children of "$current_xml_selection_path":}
         $count++;
     }
 
-    $self->_indent();
+    $self->_outdent();
 }
 
 sub _for_each
@@ -2839,7 +2746,9 @@ sub __string__
 
         if ( $ref eq "ARRAY" )
         {
-            return $self->__string__( $$node[0], $depth );
+            my $str = $self->__string__( $$node[0], $depth );
+            $self->_outdent();
+            return $str;
         }
         else
         {
@@ -2940,12 +2849,14 @@ sub _get_node_set
             {
 
                 # node-set array-ref
+                $self->_outdent();
                 return $$variables{$varname};
             }
             elsif ( ref( $$variables{$varname} ) eq 'XML::DOM::NodeList' )
             {
 
                 # node-set nodelist
+                $self->_outdent();
                 return [ @{ $$variables{$varname} } ];
             }
             elsif (
@@ -2953,11 +2864,13 @@ sub _get_node_set
             {
 
                 # node-set documentfragment
+                $self->_outdent();
                 return [ $$variables{$varname}->getChildNodes ];
             }
             else
             {
                 # string or number?
+                $self->_outdent();
                 return [ $self->xml_document()
                       ->createTextNode( $$variables{$varname} ) ];
             }
@@ -2965,12 +2878,14 @@ sub _get_node_set
         else
         {
             # var does not exist
+            $self->_outdent();
             return [];
         }
     }
     elsif ( $path eq $current_path || $path eq 'self::node()' )
     {
         $self->debug("direct hit!");
+        $self->_outdent();
         return [$current_node];
     }
     else
@@ -3090,12 +3005,13 @@ sub __try_a_step__
 
     }
     elsif ( $path =~
-s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
+s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(.+?)\]//
       )
     {
 
         # //elem[n] #
         $self->debug(qq{getting deep indexed element `$1' `$2' ("$path")});
+        $self->_outdent();
         return &__indexed_element__( $self, $1, $2, $path, $node, $silent,
             "deep" );
 
@@ -3105,14 +3021,16 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # //elem #
         $self->debug(qq{getting deep element `$1' ("$path")});
+        $self->_outdent();
         return &__element__( $self, $1, $path, $node, $silent, "deep" );
 
     }
-    elsif ( $path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]// )
+    elsif ( $path =~ s/^\/(child\:\:|)(\*|[\w\.\:\-]+)\[(.+?)\]// )
     {
 
         # /elem[n] #
         $self->debug(qq{getting indexed element `$2' `$3' ("$path")});
+        $self->_outdent();
         return &__indexed_element__( $self, $2, $3, $path, $node, $silent );
 
     }
@@ -3121,6 +3039,7 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # /text() #
         $self->debug(qq{getting text ("$path")});
+        $self->_outdent();
         return &__get_nodes__( $self, TEXT_NODE, $path, $node, $silent );
 
     }
@@ -3129,6 +3048,7 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # /processing-instruction() #
         $self->debug(qq{getting processing instruction ("$path")});
+        $self->_outdent();
         return $self->__get_nodes__(PROCESSING_INSTRUCTION_NODE, 
 					                     $path, 
 												$node,
@@ -3140,6 +3060,7 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # /comment() #
         $self->debug(qq{getting comment ("$path")});
+        $self->_outdent();
         return &__get_nodes__( $self, COMMENT_NODE, $path, $node, $silent );
 
     }
@@ -3148,6 +3069,7 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
 
         # /elem #
         $self->debug(qq{getting element `$2' ("$path")});
+        $self->_outdent();
         return &__element__( $self, $2, $path, $node, $silent );
 
     }
@@ -3155,6 +3077,7 @@ s/^\/descendant\-or\-self\:\:node\(\)\/(child\:\:|)(\*|[\w\.\:\-]+)\[(\S+?)\]//
     {
         $self->warn(
             "get-node-from-path: Don't know what to do with path $path !!!");
+        $self->_outdent();
         return [];
     }
 }
@@ -3183,47 +3106,71 @@ sub __parent__
 
 sub __indexed_element__
 {
-    my ( $self, $element, $index, $path, $node, $silent, $deep ) = @_;
-    $index ||= 0;
-    $deep  ||= "";    # False #
+   my ( $self, $element, $index, $path, $node, $silent, $deep ) = @_;
+   $index ||= 0;
+   $deep  ||= "";    # False #
 
-    if ( $index =~ /^first\s*\(\)/ )
-    {
-        $index = 0;
-    }
-    elsif ( $index =~ /^last\s*\(\)/ )
-    {
-        $index = -1;
-    }
-    else
-    {
-        $index--;
-    }
+   my $xpath;
 
-    my @list = $node->getElementsByTagName( $element, $deep );
+   $self->debug("got element $element and index $index at $path");
+   if ( $index =~ /^\d+$/ )
+   {
+      $self->debug("got a numeric index");
+      $index--;
+   }
+   else
+   {
+      $self->debug("index is an expression");
+      if ( $index =~ /^first\s*\(\)/ )
+      {
+         $index = 0;
+      }
+      elsif ( $index =~ /^last\s*\(\)/ )
+      {
+         $index = -1;
+      }
+      elsif ( $index =~ /attribute::(\S+)/ )
+      {
+          $xpath = "$element\[\@$1\]";
+          $index = 0;
+      }
+   }
 
-    if (@list)
-    {
-        $node = $list[$index];
-    }
-    else
-    {
-        $node = "";
-    }
+   my @list;
+   if ( $xpath )
+   {
+       $self->debug("tring with expression $xpath");
+       @list = $node->findnodes($xpath);
+   }
+   else
+   {
+       @list = $node->getElementsByTagName( $element, $deep );
+   }
 
-    $self->_indent();
-    if ($node)
-    {
-        $node = &__get_node_set__( $self, $path, [$node], $silent );
-    }
-    else
-    {
-        $self->debug("failed!");
-        $node = [];
-    }
-    $self->_outdent();
+   $self->debug( "got " . @list . " candidate elements" );
+   if (@list)
+   {
+      $self->debug("Getting index item $index");
+      $node = $list[$index];
+   }
+   else
+   {
+      $node = "";
+   }
 
-    return $node;
+   $self->_indent();
+   if ($node)
+   {
+      $node = &__get_node_set__( $self, $path, [$node], $silent );
+   }
+   else
+   {
+      $self->debug("failed!");
+      $node = [];
+   }
+   $self->_outdent();
+
+   return $node;
 }
 
 sub __element__
@@ -3325,7 +3272,7 @@ sub _attribute_value_of
         #$value =~ s/(\*|\$|\@|\&|\?|\+|\\)/\\$1/g;
         $value =~ s/(\*|\?|\+)/\\$1/g;
         study($value);
-        while ( $value =~ /\G[^\\]?\{(.*?[^\\]?)\}/ )
+        while ( $value =~ /\G[^\\]*\{(.*?[^\\]*)\}/ )
         {
             my $node =
               $self->_get_node_set( $1, $self->xml_document(),
@@ -3335,11 +3282,11 @@ sub _attribute_value_of
                 $self->_indent();
                 my $text = $self->__string__( $$node[0] );
                 $self->_outdent();
-                $value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1$text/;
+                $value =~ s/(\G[^\\]*)\{(.*?)[^\\]*\}/$1$text/;
             }
             else
             {
-                $value =~ s/(\G[^\\]?)\{(.*?)[^\\]?\}/$1/;
+                $value =~ s/(\G[^\\]*)\{(.*?)[^\\]*\}/$1/;
             }
         }
 
@@ -3587,7 +3534,7 @@ sub __evaluate_test__
 		  $self ->debug("Attribute: $1");
         $content = $node->getAttribute($1);
     }
-    elsif ( $lhs =~ /^([\$\w\.\:\-]+)$/ )
+    elsif ( $lhs =~ /^([\$\w\.\:\-\/]+)$/ )
     {
 		  $self ->debug("Path: $1");
         my $test_path = $1;
@@ -4172,6 +4119,15 @@ General information, bug reporting tools, the latest version, mailing
 lists, etc. can be found at the XML::XSLT homepage:
 
   http://xmlxslt.sourceforge.net/
+  
+The sourcecode however has been migrated to Github at:
+
+  https://github.com/jonathanstowe/XML-XSLT
+
+And bug reports are probably best reported to
+
+   https://rt.cpan.org/Dist/Display.html?Queue=XML-XSLT
+
 
 =head1 DEPRECATIONS
 
@@ -4242,7 +4198,8 @@ use B<serve()> instead.
 
 =head1 BUGS
 
-Yes.
+Yes.  Please see the README for details on the best ways to report bugs
+or suggest patches.
 
 =head1 HISTORY
 
@@ -4250,11 +4207,16 @@ Geert Josten and Egon Willighagen developed and maintained XML::XSLT
 up to version 0.22.  At that point, Mark Hershberger started moving
 the project to Sourceforge and began working on it with Bron Gondwana.
 
+Since just prior to 0.51 the code was moved to Github to aid collaborative
+development
+
 =head1 LICENCE
 
-Copyright (c) 1999 Geert Josten & Egon Willighagen. All Rights
-Reserverd.  This module is free software, and may be distributed under
-the same terms and conditions as Perl.
+Copyright (c) 1999 Geert Josten & Egon Willighagen. 
+          (c) 2001-2013 Jonathan Stowe
+
+All Rights Reserved.  This module is free software, and may be distributed
+under the same terms and conditions as Perl.
 
 =head1 AUTHORS
 
@@ -4266,20 +4228,10 @@ Mark A. Hershberger <mah@everybody.org>
 
 Bron Gondwana <perlcode@brong.net>
 
-Jonathan Stowe <jns@gellyfish.com>
+Jonathan Stowe <jns@gellyfish.co.uk>
 
 =head1 SEE ALSO
 
-L<XML::DOM>, L<LWP::Simple>, L<XML::Parser>
+L<XML::DOM>, L<XML::DOM::XPath>, L<LWP::Simple>, L<XML::Parser>
 
 =cut
-
-Filename: $RCSfile: XSLT.pm,v $
-Revision: $Revision: 1.34 $
-   Label: $Name:  $
-
-Last Chg: $Author: gellyfish $ 
-      On: $Date: 2008/11/21 15:45:13 $
-
-  RCS ID: $Id: XSLT.pm,v 1.34 2008/11/21 15:45:13 gellyfish Exp $
-    Path: $Source: /cvsroot/xmlxslt/XML-XSLT/lib/XML/XSLT.pm,v $

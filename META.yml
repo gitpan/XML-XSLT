@@ -1,23 +1,19 @@
---- #YAML:1.0
-name:               XML-XSLT
-version:            0.50_2
-abstract:           Conversion of XML files with XSLT.
+---
+abstract: 'Conversion of XML files with XSLT.'
 author:
-    - Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)
-license:            unknown
-distribution_type:  module
-configure_requires:
-    ExtUtils::MakeMaker:  0
-requires:
-    Test::More:       0.7
-    XML::DOM:         1.25
-    XML::DOM::XPath:  0.10
-    XML::Parser:      2.23
-no_index:
-    directory:
-        - t
-        - inc
-generated_by:       ExtUtils::MakeMaker version 6.48
+  - 'Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)'
+build_requires: {}
+dynamic_config: 1
+generated_by: 'ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.120921'
+license: perl
 meta-spec:
-    url:      http://module-build.sourceforge.net/META-spec-v1.4.html
-    version:  1.4
+  url: http://module-build.sourceforge.net/META-spec-v1.4.html
+  version: 1.4
+name: XML-XSLT
+no_index:
+  directory:
+    - t
+    - inc
+resources:
+  repository: https://github.com/jonathanstowe/XML-XSLT.git
+version: 0.50_3

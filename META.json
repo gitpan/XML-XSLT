@@ -1,0 +1,31 @@
+{
+   "abstract" : "Conversion of XML files with XSLT.",
+   "author" : [
+      "Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)"
+   ],
+   "dynamic_config" : 1,
+   "generated_by" : "ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.120921",
+   "license" : [
+      "perl_5"
+   ],
+   "meta-spec" : {
+      "url" : "http://search.cpan.org/perldoc?CPAN::Meta::Spec",
+      "version" : "2"
+   },
+   "name" : "XML-XSLT",
+   "no_index" : {
+      "directory" : [
+         "t",
+         "inc"
+      ]
+   },
+   "release_status" : "testing",
+   "resources" : {
+      "repository" : {
+         "type" : "git",
+         "url" : "https://github.com/jonathanstowe/XML-XSLT.git",
+         "web" : "https://github.com/jonathanstowe/XML-XSLT"
+      }
+   },
+   "version" : "0.50_3"
+}

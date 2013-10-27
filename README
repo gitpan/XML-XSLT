@@ -2,6 +2,7 @@
 
 Copyright (c) 1999 Geert Josten & Egon Willighagen.
 Copyright (c) 2001 Mark A. Hershberger
+Copyright (c) 2001-2013 Jonathan Stowe.
 
 All rights reserved.
 
@@ -12,6 +13,9 @@ The Perl licence can be found in the README file in the Perl source
 distribution.
 
 Information can be found at: http://xmlxslt.sourceforge.net/ 
+
+The sourcecode is currently hosted at https://github.com/jonathanstowe/XML-XSLT
+please feel free to fork and submit pull requests.
 
 The module can be found at:
 http://www.cpan.org/modules/by-module/XML
@@ -76,3 +80,6 @@ DEPENDENCIES
 
 This module requires XML::DOM (and its dependency XML::Parser) and also
 requires Test::More to perform its tests.
+
+Since version 0.50 it also depends on XML::DOM::XPath which removes some of
+the pain with parsing XPath expressions

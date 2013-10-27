@@ -63,3 +63,4 @@ t/to_dom.t
 t/variable.t
 t/xsl_cond.t
 t/zeroes.t
+META.json                                Module JSON meta-data (added by MakeMaker)

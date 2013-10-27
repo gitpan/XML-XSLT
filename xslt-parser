@@ -41,9 +41,11 @@ it will not output the headers that are usually needed.
 
 =item -s <file>
 
-Specify a seperate different stylesheet.  Usually, xslt-parser will
+Specify a separate different stylesheet.  Usually, xslt-parser will
 simply append `.xsl' to the project name to get the stylesheet.  A
 different stylesheet can be specified using this option.
+
+=back
 
 =head1 AUTHORS
 
