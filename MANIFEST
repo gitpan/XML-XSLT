@@ -52,8 +52,11 @@ t/forward.t
 t/include.t
 t/include.xsl
 t/open.t
-t/open.xml
-t/open.xsl
+t/test_data/open.xml
+t/test_data/open.xsl
+t/oasis_mkfinder.t 
+t/test_data/MkFinder.xsl 
+t/test_data/catalog.xml
 t/output.t
 t/params.t
 t/pattern.t

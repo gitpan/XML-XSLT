@@ -2,13 +2,15 @@ use Test::More tests => 1;
 use XML::XSLT;
 use strict;
 
+use FindBin qw($Bin);
+
 my $xslt;
 eval
 {
  local $^W = 0; # don't understand the Expat warning yet
- $xslt = XML::XSLT->new (Source => 't/open.xsl',debug => 0);
- $xslt->open_xsl('t/open.xsl');
- $xslt->transform('t/open.xml');
+ $xslt = XML::XSLT->new (Source => "$Bin/test_data/open.xsl",debug => 0);
+ $xslt->open_xsl("$Bin/test_data/open.xsl");
+ $xslt->transform("$Bin/test_data/open.xml");
 };
 SKIP:
 {

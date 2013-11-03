@@ -1,3 +1,9 @@
+0.50_5 Sun  3 Nov 14:19:38 GMT 2013
+   * Can now begin to support functions
+   * Can take multi condition tests
+   * Both sides of a test can be an XPath expression or function.
+0.50_4 Sun Oct 27 16:10:19 GMT 2013
+   * Interim update
 0.50_3 Sun Oct 27 16:10:19 GMT 2013
 	* Fixed the majority of the reports in RT
 	* Moved to Github

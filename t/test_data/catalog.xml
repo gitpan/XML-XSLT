@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<test-suite>
+  <!-- CAUTION: Not all applicable discretionary-item flags have been entered. -->
+  <test-catalog submitter="Lotus">
+    <creator>Lotus/IBM</creator>
+    <major-path>Xalan_Conformance_Tests</major-path>
+    <date>2001-11-16</date>
+    <test-case category="XSLT-Result-Tree" id="attribset_attribset01">
+      <file-path>attribset</file-path>
+      <creator>Paul Dick</creator>
+      <date>2001-11-08</date>
+      <purpose>Set attribute of a LRE from single attribute set.</purpose>
+      <spec-citation place="7.1.4" type="section" version="1.0" spec="xslt"/>
+      <scenario operation="standard">
+        <input-file role="principal-data">attribset01.xml</input-file>
+        <input-file role="principal-stylesheet">attribset01.xsl</input-file>
+        <output-file role="principal" compare="XML">attribset01.out</output-file>
+      </scenario>
+    </test-case>
+  </test-catalog>
+</test-suite>

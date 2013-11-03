@@ -4,7 +4,7 @@ author:
   - 'Geert Josten (gjosten@sci.kun.nl) and Egon Willighagen (egonw@sci.kun.nl)'
 build_requires: {}
 dynamic_config: 1
-generated_by: 'ExtUtils::MakeMaker version 6.62, CPAN::Meta::Converter version 2.120921'
+generated_by: 'ExtUtils::MakeMaker version 6.64, CPAN::Meta::Converter version 2.120921'
 license: perl
 meta-spec:
   url: http://module-build.sourceforge.net/META-spec-v1.4.html
@@ -16,4 +16,4 @@ no_index:
     - inc
 resources:
   repository: https://github.com/jonathanstowe/XML-XSLT.git
-version: 0.50_4
+version: 0.50_5
